@@ -67,7 +67,7 @@ flowchart LR
 
 <img width="700" alt="image" src="https://github.com/user-attachments/assets/eb1d11bb-46d1-4bd0-ba02-7522f15d8289" />
 
-*Figure 1: Greenhouse Farm Management System — ESP32/STM32 LoRa Gateway PCB designed in EasyEDA.*
+*Figure 2: Greenhouse Farm Management System — ESP32/STM32 LoRa Gateway PCB designed in EasyEDA.*
 
 ## Reliability on the LoRa link
 
@@ -84,6 +84,10 @@ Stack: Node.js, Express, MongoDB (Mongoose), MQTT.js, JWT, bcrypt, Server-Sent E
 - **Scheduler** checks schedules every 15 s and sends a command only when a device state differs from the schedule.
 - **Threshold alerts**: every new sensor reading is checked against fixed safe ranges; a breach creates a notification that is pushed live to the dashboard (the latest 50 per node are kept).
 - **SSE hub** pushes relay acknowledgement or timeout to the browser without polling.
+
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/a1f30918-1535-48ae-95b3-81b2be8f369e" />
+
+*Figure 3: GreenHouse web dashboard overview — real-time monitoring of greenhouse status, sensors, devices, and MQTT gateway connectivity.*
 
 ## Project structure
 
