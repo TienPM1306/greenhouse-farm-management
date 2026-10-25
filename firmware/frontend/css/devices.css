@@ -1,0 +1,326 @@
+/* devices.css — tất cả thiết bị gom theo nhà kính (tab) + công tắc on/off. */
+
+.schedule-overview {
+  margin: var(--spacing-24) 0;
+  padding: var(--spacing-24);
+  border-radius: var(--radius-card);
+  background: var(--bg-band);
+  border: 1px solid var(--border-color);
+}
+.schedule-overview__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-16);
+  margin-bottom: var(--spacing-16);
+}
+.schedule-overview__title {
+  margin: 4px 0 0;
+  font-family: var(--font-founders-grotesk);
+  font-size: var(--text-heading);
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+.schedule-overview__count,
+.schedule-overview__status,
+.schedule-overview__open {
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.schedule-overview__count {
+  padding: 7px 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  font-size: var(--text-body-sm);
+  font-weight: var(--fw-bold);
+}
+.schedule-overview__list {
+  display: grid;
+  gap: var(--spacing-8);
+}
+.schedule-overview__item {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--spacing-12);
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+}
+.schedule-overview__item.is-active {
+  border-color: var(--color-lime-canopy);
+}
+.schedule-overview__time {
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+}
+.schedule-overview__main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-16);
+  min-width: 0;
+  white-space: nowrap;
+}
+.schedule-overview__device {
+  display: inline;
+  flex: 0 1 auto;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.schedule-overview__meta {
+  display: inline;
+  flex: 0 0 auto;
+  margin-left: var(--spacing-16);
+  color: var(--text-muted);
+  font-size: var(--text-body-sm);
+  white-space: nowrap;
+}
+.schedule-overview__status {
+  padding: 6px 10px;
+  background: var(--bg-band);
+  color: var(--text-muted);
+  font-size: var(--text-body-sm);
+  font-weight: var(--fw-bold);
+  margin-right: var(--spacing-8);
+}
+.schedule-overview__status.is-on {
+  background: var(--color-lime-canopy);
+  color: var(--color-ink-black);
+}
+.schedule-overview__open {
+  padding: 7px 13px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-body-sm);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+.schedule-overview__open:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.schedule-overview__empty {
+  padding: var(--spacing-16);
+  border-radius: 16px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+}
+
+.dev-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-8);
+  margin-bottom: var(--spacing-24);
+}
+.dev-tab {
+  padding: 8px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  transition: all var(--transition);
+}
+.dev-tab:hover { border-color: var(--border-strong); }
+.dev-tab.is-active {
+  background: var(--color-lime-canopy);
+  color: var(--color-ink-black);
+  border-color: var(--color-lime-canopy);
+  font-weight: var(--fw-bold);
+}
+
+.dev-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-16);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: var(--card-padding);
+}
+.dev-card__icon {
+  width: 44px; height: 44px;
+  border-radius: 12px;
+  background: var(--bg-band);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.dev-card__name { font-weight: var(--fw-bold); }
+.dev-card__sub { color: var(--text-muted); font-size: var(--text-body-sm); }
+.dev-card__left { display: flex; align-items: center; gap: var(--spacing-12); }
+
+/* Nút icon lịch hẹn giờ trên dev-card */
+.dev-card__schedule-btn {
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.dev-card__schedule-btn:hover { border-color: var(--border-strong); }
+.dev-card__schedule-btn.has-active {
+  color: var(--color-lime-canopy);
+  border-color: var(--color-lime-canopy);
+}
+.dev-card__schedule-badge {
+  position: absolute;
+  top: -6px; right: -6px;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--color-lime-canopy);
+  color: var(--color-ink-black);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Dòng lịch trong modal (kiểu "alarm" trên điện thoại) */
+.sch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  padding: var(--spacing-12) 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.sch-row:last-child { border-bottom: none; }
+.sch-row__main { display: flex; flex-direction: column; gap: 2px; }
+.sch-row__time { font-weight: var(--fw-bold); }
+.sch-row__sub { color: var(--text-muted); font-size: var(--text-body-sm); }
+.sch-row__actions { display: flex; align-items: center; gap: var(--spacing-8); }
+
+/* Drum picker chọn giờ:phút kiểu iOS */
+.time-pickers {
+  display: flex;
+  gap: var(--spacing-16);
+  justify-content: center;
+}
+.time-picker-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-8);
+}
+.time-picker-label {
+  font-size: var(--text-body-sm);
+  color: var(--text-muted);
+  font-weight: var(--fw-bold);
+}
+.time-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-band);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  padding: 0 12px;
+}
+.time-picker__sep {
+  font-size: 22px;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.time-picker__col {
+  position: relative;
+  width: 48px;
+  height: 156px;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -ms-overflow-style: none;
+  scrollbar-width: none; /* Firefox */
+}
+.time-picker__col::-webkit-scrollbar { display: none; }
+.time-picker__col::before,
+.time-picker__col::after {
+  content: "";
+  display: block;
+  height: 52px; /* padding top/bottom = 1 item */
+}
+.time-picker__item {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  scroll-snap-align: center;
+  color: var(--text-muted);
+  transition: color 0.15s, font-size 0.15s;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.time-picker__item.is-selected {
+  color: var(--text-primary);
+  font-size: 30px;
+}
+/* Đường kẻ highlight item giữa */
+.time-picker {
+  position: relative;
+}
+.time-picker::before,
+.time-picker::after {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px;
+  height: 1px;
+  background: var(--border-strong);
+  pointer-events: none;
+  z-index: 1;
+}
+.time-picker::before { top: calc(50% - 26px); }
+.time-picker::after  { top: calc(50% + 26px); }
+
+/* Nút icon dùng chung (xóa, sửa...) */
+.btn-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.btn-icon:hover { background: var(--bg-band); }
+.btn-icon--danger:hover { color: var(--color-danger, #d33); border-color: var(--color-danger, #d33); }
+
+@media (max-width: 760px) {
+  .schedule-overview__head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .schedule-overview__item {
+    grid-template-columns: 1fr auto;
+  }
+  .schedule-overview__main {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .schedule-overview__time {
+    grid-column: 1;
+  }
+  /* Thẻ thiết bị trên mobile: tên + mô tả chiếm nguyên 1 hàng (không bị bóp gãy dòng),
+     cụm nút điều khiển (chế độ / giờ / toggle) xuống hàng dưới, căn phải. */
+  .dev-card { flex-wrap: wrap; }
+  .dev-card__left { flex: 1 1 100%; min-width: 0; }
+  .dev-card > *:not(.dev-card__left) { margin-left: auto; }
+}

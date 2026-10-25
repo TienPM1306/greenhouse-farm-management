@@ -1,0 +1,9 @@
+/* projects.css — trang danh sách dự án (card dùng chung .gh-card ở base.css). */
+
+/* Empty state */
+.empty {
+  text-align: center;
+  padding: var(--spacing-80) var(--spacing-24);
+  color: var(--text-muted);
+}
+.empty__icon { font-size: 40px; margin-bottom: var(--spacing-16); }
