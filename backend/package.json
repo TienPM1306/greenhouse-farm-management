@@ -1,0 +1,31 @@
+{
+  "name": "greenhouse-backend",
+  "version": "2.0.0",
+  "description": "Backend Application (Express + MongoDB/mongoose) cho dashboard nông trại nhà kính (DATN) — kiến trúc MVC bám sát báo cáo mục 3.3.2",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed": "node scripts/seed.js",
+    "seed:mongo": "node scripts/seedMongo.js",
+    "observe": "node mqttObserve.js",
+    "pub:sample": "node test/mqttPublishSample.js",
+    "mock": "json-server db.json --static ../frontend"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "json-server": "^1.0.0-beta.3",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^8.5.1",
+    "mqtt": "^5.10.1",
+    "nodemailer": "^9.0.3"
+  },
+  "devDependencies": {
+    "browser-sync": "^3.0.2"
+  }
+}
