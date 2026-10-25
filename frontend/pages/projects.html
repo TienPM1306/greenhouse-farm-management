@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nhà kính — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/projects.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <!-- Hero -->
+        <section class="hero hero--compact">
+          <div class="hero__bg"></div>
+          <div class="hero__content hero__content--wide flex--between">
+            <div>
+              <h1 class="hero__title">Danh sách dự án</h1>
+              <p class="hero__desc">Quản lý các khu nhà kính, cảm biến và thiết bị trong từng khu.</p>
+            </div>
+            <div class="flex hero-actions gap-12">
+              <button class="btn btn--primary" id="add-btn">+ Thêm dự án</button>
+              <button class="btn btn--primary" id="config-btn">Cấu hình mới</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="grid grid--3" id="gh-list"></div>
+
+        <!-- Modal: Thêm dự án -->
+        <div class="modal-overlay" id="add-modal" aria-hidden="true">
+          <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
+            <h3 class="modal-box__title" id="add-modal-title">Thêm dự án</h3>
+            <p class="modal-box__desc" id="add-modal-desc">Nhập thông tin dự án mới.</p>
+            <form id="add-form">
+              <div class="field">
+                <label for="f-project">Tên dự án</label>
+                <input id="f-project" type="text" placeholder="VD: Nông trại rau sạch khu A" required />
+              </div>
+              <div class="field">
+                <label for="f-address">Địa chỉ</label>
+                <input id="f-address" type="text" placeholder="VD: 10.818131, 106.573856" />
+              </div>
+              <div class="field">
+                <label for="f-gateway">Tên gateway</label>
+                <select id="f-gateway">
+                  <option value="">— Chọn gateway —</option>
+                </select>
+              </div>
+              <div class="modal-actions">
+                <button type="button" class="btn btn--ghost" id="add-cancel">Hủy</button>
+                <button type="button" class="btn btn--danger" id="add-delete" hidden>Xóa</button>
+                <button type="submit" class="btn btn--primary" id="add-submit">Thêm</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Modal: Cấu hình board mới -->
+        <div class="modal-overlay" id="config-modal" aria-hidden="true">
+          <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="config-modal-title">
+            <h3 class="modal-box__title" id="config-modal-title">Cấu hình board mới</h3>
+            <p class="modal-box__desc">Nhập tên WiFi của board để tìm và cấu hình.</p>
+            <form id="config-form">
+              <div class="field">
+                <label for="c-wifi">Tên WiFi</label>
+                <div class="flex gap-8">
+                  <input id="c-wifi" type="text" placeholder="VD: Greenhouse_AP_01" class="flex-1" />
+                  <button type="button" class="btn btn--ghost" id="c-find">Tìm</button>
+                </div>
+              </div>
+              <!-- List gateway khả dụng (hiện sau khi Tìm) -->
+              <div id="config-list" class="hex-list" hidden></div>
+              <!-- Chỉ hiện khi chọn 1 gateway -->
+              <div class="field mt-16" id="config-name-wrap" hidden>
+                <label for="c-gw-new">Tên Gateway mới</label>
+                <input id="c-gw-new" type="text" placeholder="Đặt tên mới cho gateway" />
+              </div>
+              <div class="modal-actions">
+                <button type="button" class="btn btn--ghost" id="config-cancel">Hủy</button>
+                <button type="submit" class="btn btn--primary" id="config-save" hidden>Lưu cấu hình</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch, getCurrentUserId } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { showToast, confirmDialog } from "/js/notify.js";
+    import { icon } from "/js/icons.js";
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "projects" });
+    renderHeader({ title: "Nhà kính" });
+
+    function escapeHtml(str = "") {
+      return String(str).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    function ghCard(gw) {
+      const div = document.createElement("div");
+      div.className = "gh-card";
+      div.innerHTML = `
+        <button class="gh-card__edit" type="button" title="Chỉnh sửa dự án" aria-label="Chỉnh sửa dự án">${icon("edit", { size: "18px" })}</button>
+        <div class="gh-card__banner">
+          <div class="gh-card__banner-text">
+            <div class="gh-card__gw">${escapeHtml(gw.projectName || "Dự án")}</div>
+            <div class="gh-card__gw-sub">${escapeHtml(gw.gatewayAddress || "Chưa có địa chỉ")}</div>
+          </div>
+          <div class="gh-card__banner-icon">${icon("duo:leaf", { size: "22px" })}</div>
+        </div>
+        <div class="gh-card__body">
+          <div class="gh-card__title">${escapeHtml(gw.gatewayName || "—")}</div>
+          <div class="gh-card__addr">Gateway</div>
+        </div>`;
+      div.querySelector(".gh-card__edit").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openModal(gw);
+      });
+      div.addEventListener("click", () => {
+        window.location.href = `gateway-details.html?id=${gw.id}`;
+      });
+      return div;
+    }
+
+    async function load() {
+      showSpinner();
+      try {
+        const userId = getCurrentUserId();
+        const gateways = await apiFetch(`/gateways?userId=${encodeURIComponent(userId)}`);
+        const list = document.getElementById("gh-list");
+        list.innerHTML = "";
+
+        if (!gateways.length) {
+          list.innerHTML = `<div class="empty" style="grid-column:1/-1">
+            <div class="empty__icon">🌱</div>
+            <p>Chưa có dự án nào. Bấm "Thêm dự án" để bắt đầu.</p></div>`;
+          return;
+        }
+
+        for (const gw of gateways) {
+          list.appendChild(ghCard(gw));
+        }
+      } catch (e) {
+        showToast("Không tải được danh sách nhà kính", "error");
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    // ----- Modal Thêm dự án -----
+    const modal = document.getElementById("add-modal");
+    const addForm = document.getElementById("add-form");
+
+    let editingId = null;
+    const modalTitle = document.getElementById("add-modal-title");
+    const modalDesc = document.getElementById("add-modal-desc");
+    const submitBtn = document.getElementById("add-submit");
+    const deleteBtn = document.getElementById("add-delete");
+    let editingMac = null; // mac của gateway đang sửa (để gửi lệnh reset đăng ký)
+    const gwSelect = document.getElementById("f-gateway");
+
+    // Map tên gateway → mac (để lưu mac vào record dự án, khớp với gateway mqttHandler tạo theo MAC).
+    let gwNameToMac = {};
+
+    // Nạp list "Tên gateway" = các gateway đã cấu hình NHƯNG chưa đăng ký (chưa gán dự án).
+    async function loadGatewayOptions(currentName = "", currentMac = "") {
+      let boards = [];
+      let names = [];
+      try {
+        const [bds, projects] = await Promise.all([
+          apiFetch("/newGateways"),
+          apiFetch(`/gateways?userId=${encodeURIComponent(getCurrentUserId())}`),
+        ]);
+        boards = bds;
+        // Tên gateway đã "đăng ký" = đang được một dự án sử dụng.
+        const usedNames = new Set(projects.map((p) => p.gatewayName).filter(Boolean));
+        names = boards
+          .filter((b) => b.configured && b.gatewayName && !usedNames.has(b.gatewayName))
+          .map((b) => b.gatewayName);
+      } catch {
+        names = [];
+      }
+      // Map tên → mac từ newGateways
+      gwNameToMac = {};
+      for (const b of boards) {
+        if (b.gatewayName && b.mac) gwNameToMac[b.gatewayName] = b.mac;
+      }
+      if (currentName && currentMac) gwNameToMac[currentName] = currentMac; // giữ mac dự án đang sửa
+      names = [...new Set(names)];
+      // Giữ giá trị cũ của dự án đang sửa (dù đã đăng ký) để không mất lựa chọn.
+      if (currentName && !names.includes(currentName)) names.unshift(currentName);
+      gwSelect.innerHTML =
+        `<option value="">— Chọn gateway —</option>` +
+        names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join("");
+      gwSelect.value = currentName || "";
+    }
+
+    // gw = null → chế độ Thêm; gw có dữ liệu → chế độ Chỉnh sửa (điền sẵn form đã đăng ký).
+    async function openModal(gw = null) {
+      editingId = gw ? gw.id : null;
+      editingMac = gw && gw.mac ? gw.mac : null;
+      modalTitle.textContent = gw ? "Chỉnh sửa dự án" : "Thêm dự án";
+      modalDesc.textContent = gw ? "Cập nhật thông tin dự án." : "Nhập thông tin dự án mới.";
+      submitBtn.textContent = gw ? "Lưu" : "Thêm";
+      deleteBtn.hidden = !gw;
+      document.getElementById("f-project").value = gw && gw.projectName ? gw.projectName : "";
+      document.getElementById("f-address").value = gw && gw.gatewayAddress ? gw.gatewayAddress : "";
+      await loadGatewayOptions(gw && gw.gatewayName ? gw.gatewayName : "", gw && gw.mac ? gw.mac : "");
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.getElementById("f-project").focus();
+    }
+    function closeModal() {
+      modal.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      editingId = null;
+      editingMac = null;
+      addForm.reset();
+    }
+
+    document.getElementById("add-btn").addEventListener("click", () => openModal());
+    document.getElementById("add-cancel").addEventListener("click", closeModal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && modal.classList.contains("is-open")) closeModal();
+    });
+
+    addForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const projectName = document.getElementById("f-project").value.trim();
+      const gatewayAddress = document.getElementById("f-address").value.trim();
+      const gatewayName = document.getElementById("f-gateway").value.trim();
+      if (!projectName) { showToast("Vui lòng nhập tên dự án", "warning"); return; }
+      // mac của gateway (khớp gateway mqttHandler tạo theo MAC) — lấy theo tên đã chọn.
+      const mac = gatewayName ? (gwNameToMac[gatewayName] || "") : "";
+      const isEdit = !!editingId;
+      showSpinner();
+      try {
+        if (isEdit) {
+          await apiFetch(`/gateways/${editingId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ projectName, gatewayName, gatewayAddress, mac }),
+          });
+          showToast("Đã cập nhật dự án", "success");
+        } else {
+          const createdGw = await apiFetch("/gateways", {
+            method: "POST",
+            body: JSON.stringify({
+              userId: getCurrentUserId(),
+              projectName,
+              gatewayName,
+              gatewayAddress,
+              mac,
+              gatewayCreatedDay: new Date().toISOString().slice(0, 10),
+              nodeId: [],
+            }),
+          });
+          // GĐ3c: tạo dự án với gateway có mac → backend tự gửi lệnh đăng ký xuống gateway,
+          // để firmware lưu NVS registered=true và bắt đầu forward node_data.
+          if (mac && createdGw && createdGw.id) {
+            try {
+              await apiFetch(`/gateways/${createdGw.id}/config`, {
+                method: "POST",
+                body: JSON.stringify({ action: "register" }),
+              });
+            } catch {
+              showToast("Đã tạo dự án nhưng chưa gửi được lệnh đăng ký gateway", "warning");
+            }
+          }
+          showToast("Đã thêm dự án", "success");
+        }
+        closeModal();
+        await load();
+      } catch (err) {
+        showToast(isEdit ? "Không cập nhật được dự án" : "Không thêm được dự án", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    deleteBtn.addEventListener("click", async () => {
+      if (!editingId) return;
+      const id = editingId;
+      const ok = await confirmDialog("Bạn có chắc muốn xóa dự án này? Hành động không thể hoàn tác.", {
+        title: "Xóa dự án",
+        okText: "Xóa",
+        danger: true,
+      });
+      if (!ok) return;
+      showSpinner();
+      try {
+        await apiFetch(`/gateways/${id}`, { method: "DELETE" });
+        showToast("Đã xóa dự án", "success");
+        closeModal();
+        await load();
+      } catch (err) {
+        showToast("Không xóa được dự án", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    // ----- Modal Cấu hình board mới -----
+    const configModal = document.getElementById("config-modal");
+    const configForm = document.getElementById("config-form");
+    const configList = document.getElementById("config-list");
+    const configNameWrap = document.getElementById("config-name-wrap");
+    const configSave = document.getElementById("config-save");
+    let configBoardId = null;
+
+    function resetConfig() {
+      configForm.reset();
+      configList.hidden = true;
+      configList.innerHTML = "";
+      configNameWrap.hidden = true;
+      configSave.hidden = true;
+      configBoardId = null;
+    }
+    function openConfigModal() {
+      resetConfig();
+      configModal.classList.add("is-open");
+      configModal.setAttribute("aria-hidden", "false");
+      document.getElementById("c-wifi").focus();
+    }
+    function closeConfigModal() {
+      configModal.classList.remove("is-open");
+      configModal.setAttribute("aria-hidden", "true");
+      resetConfig();
+    }
+
+    async function findWifi() {
+      const wifiName = document.getElementById("c-wifi").value.trim();
+      if (!wifiName) { showToast("Vui lòng nhập tên WiFi", "warning"); return; }
+      showSpinner();
+      try {
+        const [all, projects] = await Promise.all([
+          apiFetch("/newGateways"),
+          apiFetch(`/gateways?userId=${encodeURIComponent(getCurrentUserId())}`),
+        ]);
+        const usedNames = new Set(projects.map((p) => p.gatewayName).filter(Boolean));
+        const key = wifiName.toLowerCase();
+        // Gateway khả dụng = CHƯA đăng ký (chưa gán dự án nào), WiFi khớp.
+        // (Không lọc theo configured: gateway đã cấu hình nhưng dự án bị xóa vẫn hiện lại.)
+        const avail = all.filter(
+          (g) =>
+            !usedNames.has(g.gatewayName) &&
+            String(g.ssid || "").toLowerCase().includes(key)
+        );
+        configNameWrap.hidden = true;
+        configSave.hidden = true;
+        configBoardId = null;
+        if (!avail.length) {
+          configList.hidden = false;
+          configList.innerHTML = `<p class="text-muted" style="font-size:var(--text-body-sm)">Không tìm thấy gateway khả dụng.</p>`;
+          return;
+        }
+        configList.innerHTML = avail
+          .map((g) => {
+            const label = `${g.ssid || "(WiFi?)"} · ${g.gatewayName || "(chưa đặt tên)"}`;
+            return `<button type="button" class="hex-item" data-id="${escapeHtml(g.id)}">${escapeHtml(label)}</button>`;
+          })
+          .join("");
+        configList.hidden = false;
+        showToast(`Tìm thấy ${avail.length} gateway khả dụng`, "success");
+      } catch (err) {
+        showToast("Lỗi khi tìm gateway", "error");
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    // Chọn 1 gateway trong list → hiện ô "Tên Gateway mới".
+    configList.addEventListener("click", (e) => {
+      const btn = e.target.closest(".hex-item");
+      if (!btn || !btn.dataset.id) return;
+      configList.querySelectorAll(".hex-item").forEach((b) => b.classList.remove("is-selected"));
+      btn.classList.add("is-selected");
+      configBoardId = btn.dataset.id;
+      configNameWrap.hidden = false;
+      configSave.hidden = false;
+      document.getElementById("c-gw-new").focus();
+    });
+
+    document.getElementById("config-btn").addEventListener("click", openConfigModal);
+    document.getElementById("config-cancel").addEventListener("click", closeConfigModal);
+    document.getElementById("c-find").addEventListener("click", findWifi);
+    document.getElementById("c-wifi").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); findWifi(); }
+    });
+    configModal.addEventListener("click", (e) => { if (e.target === configModal) closeConfigModal(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && configModal.classList.contains("is-open")) closeConfigModal();
+    });
+    configForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!configBoardId) { showToast("Hãy chọn một gateway", "warning"); return; }
+      const newName = document.getElementById("c-gw-new").value.trim();
+      if (!newName) { showToast("Vui lòng nhập tên gateway mới", "warning"); return; }
+      showSpinner();
+      try {
+        await apiFetch(`/newGateways/${configBoardId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ gatewayName: newName, configured: true }),
+        });
+        showToast("Đã lưu cấu hình", "success");
+        closeConfigModal();
+      } catch (err) {
+        showToast("Không lưu được cấu hình", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

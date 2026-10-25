@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chi tiết Nhà kính — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/node-details.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <a href="#" id="back-link" class="nd-back">← Quay lại</a>
+        <section class="hero hero--compact">
+          <div class="hero__bg"></div>
+          <div class="hero__content">
+            <span class="eyebrow">Nhà kính</span>
+            <h1 class="hero__title" id="nd-name">Đang tải…</h1>
+            <p class="hero__desc" id="nd-desc"></p>
+          </div>
+        </section>
+
+        <!-- Các cảm biến -->
+        <div class="card mt-24">
+          <h4>Các cảm biến</h4>
+          <div class="grid grid--3 mt-16" id="sensor-tiles"></div>
+        </div>
+
+        <!-- Biểu đồ cảm biến (nhiệt độ / độ ẩm / ánh sáng) -->
+        <div class="card mt-24">
+          <div class="flex--between">
+            <h4>Biểu đồ cảm biến</h4>
+            <span class="text-muted text-sm">Hôm nay · cập nhật mỗi 10s</span>
+          </div>
+          <div class="grid grid--3 mt-16" id="chart-grid">
+            <div class="chart-box"><div class="chart-box__title" id="chart-title-1">Nhiệt độ</div><div class="chart-box__canvas"><canvas id="chart-1"></canvas></div></div>
+            <div class="chart-box"><div class="chart-box__title" id="chart-title-2">Độ ẩm</div><div class="chart-box__canvas"><canvas id="chart-2"></canvas></div></div>
+            <div class="chart-box"><div class="chart-box__title" id="chart-title-3">Ánh sáng</div><div class="chart-box__canvas"><canvas id="chart-3"></canvas></div></div>
+          </div>
+        </div>
+
+        <!-- Các thiết bị -->
+        <div class="card mt-24">
+          <h4>Các thiết bị</h4>
+          <div class="grid grid--3 mt-16" id="device-list"></div>
+        </div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch, SERVER_URL, getToken } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { showToast } from "/js/notify.js";
+    import { icon } from "/js/icons.js";
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "projects" });
+    renderHeader({ title: "Chi tiết Nhà kính" });
+
+    // chart: kiểu biểu đồ riêng cho mỗi đại lượng (cố ý khác nhau để dễ phân biệt)
+    //   nhiệt độ = line mượt | độ ẩm = area (vùng) | ánh sáng = bar (cột)
+    // Màu khớp biến --sensor-* trong base.css: nhiệt độ đỏ, độ ẩm xanh nước, ánh sáng vàng.
+    const SENSOR_META = {
+      1: { label: "Nhiệt độ", unit: "°C", icon: "duo:thermometer", color: "#e23b3b", bg: "rgba(226,59,59,.16)", chart: "line" },
+      2: { label: "Độ ẩm", unit: "%", icon: "duo:droplets", color: "#2f9bdb", bg: "rgba(47,155,219,.16)", chart: "area" },
+      3: { label: "Ánh sáng", unit: "Lux", icon: "duo:sunlight", color: "#f5b50a", bg: "rgba(245,181,10,.16)", chart: "bar" },
+    };
+
+    function escapeHtml(str = "") {
+      return String(str).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    const params = new URLSearchParams(location.search);
+    const nodeId = params.get("id");
+    let currentNode = null;
+    let currentDevices = [];
+
+    // Trần chờ ACK phía client (ms): 15s campaign firmware + biên độ jitter/MQTT.
+    const PENDING_FALLBACK_MS = 20000;
+
+    // Chống treo nút "pending": nếu Gateway im hoàn toàn (không ACK, không cả timeout),
+    // SSE không bao giờ bắn state kết thúc → nút khóa vĩnh viễn. Sau PENDING_FALLBACK_MS
+    // tự gỡ pending, giữ nguyên trạng thái cũ. Dùng cho CẢ điều khiển tay LẪN pending do
+    // lịch/cảm biến bật qua SSE. Lưu timer theo id (KHÔNG trên object device) vì
+    // refreshDevices() 5s/lần thay object mới trong currentDevices.
+    const pendingTimers = new Map(); // deviceId -> setTimeout handle
+    function armPendingFallback(deviceId) {
+      clearPendingFallback(deviceId);
+      pendingTimers.set(deviceId, setTimeout(() => {
+        pendingTimers.delete(deviceId);
+        const cur = currentDevices.find((x) => x.id === deviceId);
+        if (!cur || !cur._pending) return; // SSE đã xử lý xong
+        cur._pending = false;
+        renderDevices(currentDevices);
+        showToast(`Không nhận được phản hồi từ thiết bị "${cur.name}" — giữ nguyên trạng thái`, "warning");
+      }, PENDING_FALLBACK_MS));
+    }
+    function clearPendingFallback(deviceId) {
+      const h = pendingTimers.get(deviceId);
+      if (h) {
+        clearTimeout(h);
+        pendingTimers.delete(deviceId);
+      }
+    }
+
+    // Lấy giá trị cảm biến mới nhất từ data.today.
+    function latestValue(sensor) {
+      const pts = sensor?.data?.today?.dataMinute || sensor?.data?.today?.dataHour || [];
+      if (!pts.length) return null;
+      return pts[pts.length - 1].value;
+    }
+
+    // ─── Biểu đồ cảm biến (Chart.js) — 1 chart/đại lượng, dữ liệu dataMinute hôm nay ───
+    const charts = {}; // sensorType -> Chart instance
+
+    // Lấy mảng điểm {time,value} theo phút của hôm nay.
+    function minutePoints(sensor) {
+      return sensor?.data?.today?.dataMinute || [];
+    }
+
+    // Nhãn thời gian cùng format với đồng hồ topbar: giờ:phút:giây theo local time.
+    function hms(iso) {
+      const d = new Date(iso);
+      return [d.getHours(), d.getMinutes(), d.getSeconds()]
+        .map((n) => String(n).padStart(2, "0"))
+        .join(":");
+    }
+
+    function buildChart(type) {
+      const m = SENSOR_META[type];
+      const ctx = document.getElementById(`chart-${type}`);
+      if (!ctx || !window.Chart) return null;
+
+      // Cấu hình dataset theo kiểu riêng của từng đại lượng.
+      let chartType = "line";
+      const ds = { label: `${m.label} (${m.unit})`, data: [], borderColor: m.color };
+      if (m.chart === "bar") {
+        // Ánh sáng → cột
+        chartType = "bar";
+        ds.backgroundColor = m.color;
+        ds.borderWidth = 0;
+        ds.borderRadius = 2;
+        ds.categoryPercentage = 1.0;
+        ds.barPercentage = 1.0;
+      } else if (m.chart === "area") {
+        // Độ ẩm → vùng tô (fill rõ, đường ít bo để khác nhiệt độ)
+        ds.backgroundColor = m.bg;
+        ds.fill = true;
+        ds.tension = 0.1;
+        ds.pointRadius = 0;
+        ds.borderWidth = 2;
+      } else {
+        // Nhiệt độ → line mượt, không tô nền
+        ds.backgroundColor = "transparent";
+        ds.fill = false;
+        ds.tension = 0.45;
+        ds.pointRadius = 0;
+        ds.borderWidth = 2.5;
+      }
+
+      return new Chart(ctx, {
+        type: chartType,
+        data: { labels: [], datasets: [ds] },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { intersect: false, mode: "index" },
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { maxTicksLimit: 6, font: { size: 10 } }, grid: { display: false } },
+            y: { ticks: { font: { size: 10 } }, grid: { color: "rgba(0,0,0,.06)" } },
+          },
+        },
+      });
+    }
+
+    // Vẽ/cập nhật 3 biểu đồ từ danh sách sensors.
+    function renderCharts(sensors) {
+      [1, 2, 3].forEach((type) => {
+        const s = sensors.find((x) => Number(x.sensorType) === type);
+        const pts = s ? minutePoints(s) : [];
+        if (!charts[type]) charts[type] = buildChart(type);
+        const ch = charts[type];
+        if (!ch) return;
+        ch.data.labels = pts.map((p) => hms(p.time));
+        ch.data.datasets[0].data = pts.map((p) => p.value);
+        ch.update();
+      });
+    }
+
+    function renderSensors(sensors) {
+      const box = document.getElementById("sensor-tiles");
+      box.innerHTML = [1, 2, 3]
+        .map((t) => {
+          const m = SENSOR_META[t];
+          const s = sensors.find((x) => Number(x.sensorType) === t);
+          const v = s ? latestValue(s) : null;
+          return `<div class="sensor-tile">
+            <div class="sensor-tile__icon" style="background:${m.bg};color:${m.color}">${icon(m.icon, { size: "22px" })}</div>
+            <div>
+              <div class="sensor-tile__label">${m.label}</div>
+              <div class="sensor-tile__value">${v == null ? "—" : v}<span class="sensor-tile__unit"> ${m.unit}</span></div>
+            </div>
+          </div>`;
+        })
+        .join("");
+    }
+
+    // Bật/tắt relay (3-state ACK): PUBLISH LỆNH THẬT qua backend → encode CMD_CONTROL_DEVICE
+    // → <gwMAC>/commands. KHÔNG PATCH status đoán trước — chờ Node ACK "đã nhận lệnh" về qua
+    // node_response, backend cập nhật DB thật + đẩy SSE (connectEvents) rồi mới đổi UI.
+    async function toggleDevice(device, on) {
+      try {
+        // Gửi lệnh thật xuống phần cứng (cổng: chỉ node đã đăng ký mới qua được).
+        // Relay định danh bằng pin (1/2/3) = field deviceId trong gói firmware.
+        await apiFetch(`/nodes/${nodeId}/control`, {
+          method: "POST",
+          body: JSON.stringify({ deviceId: Number(device.pin), action: on ? "on" : "off" }),
+        });
+        device._pending = true;
+        armPendingFallback(device.id); // chống treo nếu Gateway im hoàn toàn
+        renderDevices(currentDevices);
+        showToast(`Đang gửi lệnh ${on ? "bật" : "tắt"} ${device.name}...`, "success");
+      } catch (e) {
+        showToast(`Không ${on ? "bật" : "tắt"} được ${device.name}`, "error");
+        throw e;
+      }
+    }
+
+    // Đổi chế độ điều khiển đèn/quạt (Thủ công/Tự động) — PATCH field mode trên Device.
+    async function setDeviceMode(device, mode) {
+      try {
+        await apiFetch(`/devices/${device.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ mode }),
+        });
+        device.mode = mode;
+        showToast(`Đã chuyển ${device.name} sang ${mode === "auto" ? "Tự động" : "Thủ công"}`, "success");
+        renderDevices(currentDevices);
+      } catch {
+        showToast("Không đổi được chế độ", "error");
+      }
+    }
+
+    // Relay định danh bằng "pin" (1=Đèn, 2=Máy bơm, 3=Quạt) — khớp model Device + mqttHandler.
+    const DEVICE_ICON = { "1": "duo:lightbulb", "2": "duo:pump", "3": "duo:fan" };
+    const DEFAULT_DEVICES = [
+      { name: "Đèn", pin: "1" },
+      { name: "Máy bơm", pin: "2" },
+      { name: "Quạt", pin: "3" },
+    ];
+
+    // Tạo bù các thiết bị mặc định còn thiếu, trả về danh sách đầy đủ (đã sắp theo pin).
+    async function ensureDefaultDevices(node, devices) {
+      const havePins = new Set(devices.map((d) => String(d.pin)));
+      const missing = DEFAULT_DEVICES.filter((def) => !havePins.has(def.pin));
+      if (missing.length) {
+        const created = await Promise.all(
+          missing.map((def) =>
+            apiFetch("/devices", {
+              method: "POST",
+              body: JSON.stringify({
+                gatewayId: node.gatewayId,
+                nodeId: node.id,
+                name: def.name,
+                pin: def.pin,
+                status: false,
+              }),
+            })
+          )
+        );
+        devices = devices.concat(created);
+      }
+      return devices.slice().sort((a, b) => String(a.pin).localeCompare(String(b.pin)));
+    }
+
+    function renderDevices(devices) {
+      const box = document.getElementById("device-list");
+      if (!devices.length) {
+        box.innerHTML = '<p class="text-muted" style="grid-column:1/-1">Nhà kính chưa có thiết bị.</p>';
+        return;
+      }
+      box.innerHTML = "";
+      devices.forEach((d) => {
+        const tile = document.createElement("div");
+        tile.className = "device-tile";
+        const ic = DEVICE_ICON[String(d.pin)] || "duo:plug";
+        tile.innerHTML = `
+          <div class="device-tile__head">
+            <div class="device-tile__icon">${icon(ic, { size: "22px" })}</div>
+            <div class="device-tile__name">${escapeHtml(d.name)}</div>
+          </div>
+          <div class="device-tile__foot">
+            <span class="device-tile__state">${d._pending ? "Đang chờ..." : d.status ? "Đang bật" : "Đang tắt"}</span>
+          </div>`;
+        const label = document.createElement("label");
+        label.className = "switch" + (d._pending ? " switch--pending" : "");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = !!d.status;
+        input.disabled = !!d._pending;
+        const hasMode = String(d.pin) === "1" || String(d.pin) === "3";
+        const isAuto = hasMode && d.mode === "auto";
+        if (isAuto) input.disabled = true; // khóa công tắc tay khi Tự động
+        const slider = document.createElement("span");
+        slider.className = "switch__slider";
+        input.addEventListener("change", async () => {
+          input.disabled = true;
+          try {
+            await toggleDevice(d, input.checked);
+          } catch {
+            input.checked = !input.checked; // hoàn tác nếu lỗi
+            input.disabled = false;
+          }
+          // Không mở khóa ở nhánh thành công: giữ khóa trong lúc pending tới khi
+          // SSE xác nhận/timeout và renderDevices() dựng lại tile.
+        });
+        label.append(input, slider);
+        if (hasMode) {
+          const modeBtn = document.createElement("button");
+          modeBtn.type = "button";
+          modeBtn.className = "btn btn--ghost btn--sm";
+          modeBtn.textContent = isAuto ? "Tự động" : "Thủ công";
+          modeBtn.title = "Đổi chế độ điều khiển thiết bị";
+          modeBtn.addEventListener("click", () => setDeviceMode(d, isAuto ? "manual" : "auto"));
+          tile.querySelector(".device-tile__foot").appendChild(modeBtn);
+        }
+        tile.querySelector(".device-tile__foot").appendChild(label);
+        box.appendChild(tile);
+      });
+    }
+
+    async function load() {
+      if (!nodeId) {
+        showToast("Thiếu mã nhà kính", "error");
+        return;
+      }
+      showSpinner();
+      try {
+        const node = await apiFetch(`/nodes/${nodeId}`);
+        currentNode = node;
+        const [sensors, devicesRaw] = await Promise.all([
+          apiFetch(`/sensors?nodeId=${nodeId}`),
+          apiFetch(`/devices?nodeId=${nodeId}`),
+        ]);
+
+        document.getElementById("nd-name").textContent = node.name || "Nhà kính";
+        document.getElementById("nd-desc").textContent = node.nodeDesc || node.nodePosition || "";
+        document.getElementById("back-link").href = `gateway-details.html?id=${node.gatewayId}`;
+
+        const devices = await ensureDefaultDevices(node, devicesRaw);
+        currentDevices = devices;
+        renderSensors(sensors);
+        renderCharts(sensors);
+        renderDevices(currentDevices);
+      } catch (e) {
+        showToast("Không tải được chi tiết nhà kính", "error");
+        document.getElementById("nd-name").textContent = "Không tải được dữ liệu";
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    // Refresh realtime: chỉ tải lại sensors + cập nhật ô giá trị & biểu đồ (không reload cả trang).
+    async function refreshSensors() {
+      if (!nodeId) return;
+      try {
+        const sensors = await apiFetch(`/sensors?nodeId=${nodeId}`);
+        renderSensors(sensors);
+        renderCharts(sensors);
+      } catch { /* bỏ qua lỗi nhịp refresh */ }
+    }
+
+    async function refreshDevices() {
+      if (!nodeId || !currentNode) return;
+      try {
+        const devicesRaw = await apiFetch(`/devices?nodeId=${nodeId}`);
+        const fresh = await ensureDefaultDevices(currentNode, devicesRaw);
+        // Giữ cờ _pending phía client qua nhịp refresh (object mới từ API không có cờ này) —
+        // nếu không, nút đang chờ ACK sẽ bị mở khóa/hết nhấp nháy giữa chừng.
+        const pendingIds = new Set(currentDevices.filter((d) => d._pending).map((d) => d.id));
+        fresh.forEach((d) => { if (pendingIds.has(d.id)) d._pending = true; });
+        currentDevices = fresh;
+        renderDevices(currentDevices);
+      } catch { /* bo qua loi nhip refresh */ }
+    }
+
+    // SSE realtime: nhận ACK/timeout từ backend để đổi trạng thái nút (3-state).
+    function connectEvents() {
+      const events = new EventSource(`${SERVER_URL}/events?token=${encodeURIComponent(getToken())}`);
+      events.onmessage = (e) => {
+        let payload;
+        try {
+          payload = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+        const { deviceId, state, status, source } = payload;
+        const d = currentDevices.find((x) => x.id === deviceId);
+        if (!d) return;
+        if (state === "pending") {
+          const wasPending = !!d._pending;
+          d._pending = true;
+          armPendingFallback(d.id); // chống treo: lịch/cảm biến bật pending qua SSE cũng cần fallback
+          renderDevices(currentDevices);
+          if (source === "schedule" && !wasPending) {
+            showToast(`Lịch đang gửi lệnh ${status ? "bật" : "tắt"} ${d.name}...`, "success");
+          }
+          return;
+        }
+        if (state === "error") {
+          clearPendingFallback(d.id);
+          d._pending = false;
+          renderDevices(currentDevices);
+          showToast(`Lịch không gửi được lệnh cho ${d.name}`, "error");
+          return;
+        }
+        clearPendingFallback(d.id);
+        d._pending = false;
+        d.status = status;
+        if (state === "timeout") {
+          showToast(`Không nhận được phản hồi từ thiết bị "${d.name}" — giữ nguyên trạng thái`, "warning");
+        } else {
+          showToast(`${state === "on" ? "Đã bật" : "Đã tắt"} ${d.name}`, "success");
+        }
+        renderDevices(currentDevices);
+      };
+    }
+
+    window.addEventListener("focus", refreshDevices);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) refreshDevices();
+    });
+    connectEvents();
+    load();
+    setInterval(refreshSensors, 10000); // refresh sensor charts every 10s
+    setInterval(refreshDevices, 5000);
+  </script>
+</body>
+</html>

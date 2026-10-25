@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tổng quan — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <!-- Hero -->
+        <section class="hero">
+          <div class="hero__bg"></div>
+          <div class="hero__content">
+            <span class="eyebrow">Bảng điều khiển</span>
+            <h1 class="hero__title">Tổng quan nông trại nhà kính</h1>
+            <p class="hero__desc">Giám sát môi trường, thiết bị và cảnh báo của toàn hệ thống theo thời gian thực.</p>
+          </div>
+        </section>
+
+        <!-- KPI -->
+        <div class="grid grid--4" id="kpi"></div>
+
+        <!-- Trạng thái + cảnh báo -->
+        <div class="grid grid--2 mt-24">
+          <div class="card">
+            <div class="flex--between">
+              <h4>Trạng thái hệ thống</h4>
+            </div>
+            <div id="system-status" class="mt-16"></div>
+          </div>
+          <div class="card">
+            <div class="flex--between">
+              <h4>Cảnh báo gần đây</h4>
+              <a href="alerts.html" class="chip chip--outline">Xem tất cả</a>
+            </div>
+            <div id="recent-alerts" class="mt-16"></div>
+          </div>
+        </div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch, SERVER_URL } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { icon } from "/js/icons.js";
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "overview" });
+    renderHeader({ title: "Tổng quan" });
+
+    const ALERT_STYLE = {
+      error: { cls: "chip--offline", label: "Lỗi" },
+      warning: { cls: "chip--off", label: "Cảnh báo" },
+      info: { cls: "chip--online", label: "Thông tin" },
+    };
+
+    function kpiCard(label, value, unit = "", icon = "") {
+      return `<div class="stat-card">
+        ${icon ? `<span class="stat-card__icon">${icon}</span>` : ""}
+        <span class="stat-card__label">${label}</span>
+        <span class="stat-card__value">${value}<span class="stat-card__unit"> ${unit}</span></span>
+      </div>`;
+    }
+
+    async function load() {
+      showSpinner();
+      try {
+        const [gateways, nodes, devices, sensors, notifies] = await Promise.all([
+          apiFetch("/gateways"),
+          apiFetch("/nodes"),
+          apiFetch("/devices"),
+          apiFetch("/sensors"),
+          apiFetch("/notifies"),
+        ]);
+
+        const devicesOn = devices.filter((d) => d.status).length;
+
+        // Chỉ đếm nhà kính (node) ĐÃ đặt tên (đã adopt); bỏ node auto-provision đang chờ adopt.
+        // Cảm biến cũng chỉ tính của các node đã adopt đó.
+        const adoptedNodes = nodes.filter((n) => n.name && n.name.trim());
+        const adoptedNodeIds = new Set(adoptedNodes.map((n) => n.id));
+        const adoptedSensors = sensors.filter((s) => adoptedNodeIds.has(s.nodeId));
+
+        document.getElementById("kpi").innerHTML =
+          kpiCard("Nhà kính", adoptedNodes.length, "", icon("duo:sprout", { size: "20px" })) +
+          kpiCard("Cảm biến", adoptedSensors.length, "", icon("duo:gauge", { size: "20px" })) +
+          kpiCard("Thiết bị bật", `${devicesOn}/${devices.length}`, "", icon("duo:plug", { size: "20px" })) +
+          kpiCard("Cảnh báo", notifies.length, "", icon("duo:bell", { size: "20px" }));
+
+        // Trạng thái hệ thống — MQTT lấy thật từ backend health (GĐ 3: MQTT chạy ở server).
+        let mqttChip = `<span class="chip chip--off">Không rõ</span>`;
+        try {
+          const base = SERVER_URL.replace(/\/v1\/?$/, ""); // health ở /api-status, không qua /v1
+          const health = await fetch(`${base}/api-status`).then((r) => r.json());
+          mqttChip = health.mqtt === "connected"
+            ? `<span class="chip chip--online"><span class="chip__dot"></span>Đã kết nối</span>`
+            : `<span class="chip chip--offline"><span class="chip__dot"></span>Mất kết nối</span>`;
+        } catch {
+          mqttChip = `<span class="chip chip--offline"><span class="chip__dot"></span>Mất kết nối</span>`;
+        }
+        document.getElementById("system-status").innerHTML = `
+          <div class="flex gap-16" style="flex-direction:column">
+            <div class="flex--between"><span class="text-muted">Gateway</span>
+              <span class="chip chip--online"><span class="chip__dot"></span>${gateways.length} hoạt động</span></div>
+            <div class="flex--between"><span class="text-muted">Kết nối MQTT</span>
+              ${mqttChip}</div>
+            <div class="flex--between"><span class="text-muted">Máy chủ dữ liệu</span>
+              <span class="chip chip--online"><span class="chip__dot"></span>Trực tuyến</span></div>
+          </div>`;
+
+        // Cảnh báo gần đây (tối đa 5, mới nhất trước)
+        const recent = [...notifies]
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+          .slice(0, 5);
+        const box = document.getElementById("recent-alerts");
+        if (!recent.length) {
+          box.innerHTML = '<p class="text-muted">Không có cảnh báo.</p>';
+        } else {
+          box.innerHTML = recent
+            .map((n) => {
+              const s = ALERT_STYLE[n.type] || ALERT_STYLE.info;
+              const time = new Date(n.createdAt).toLocaleString("vi-VN");
+              return `<div class="flex--between" style="padding:10px 0;border-bottom:1px solid var(--border-color)">
+                <div><div style="font-weight:600">${escapeHtml(n.title)}</div>
+                  <div class="text-muted" style="font-size:var(--text-caption)">${time}</div></div>
+                <span class="chip ${s.cls}">${s.label}</span>
+              </div>`;
+            })
+            .join("");
+        }
+      } catch (e) {
+        document.getElementById("kpi").innerHTML =
+          '<p class="text-muted">Không tải được dữ liệu. Kiểm tra máy chủ.</p>';
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    function escapeHtml(str = "") {
+      return str.replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    load();
+  </script>
+</body>
+</html>

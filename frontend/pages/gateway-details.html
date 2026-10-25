@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chi tiết dự án — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/gateway-details.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <a href="projects.html" class="gd-back">← Danh sách nhà kính</a>
+
+        <!-- Nền xanh: tên dự án + nút Thêm nhà kính -->
+        <section class="hero hero--compact">
+          <div class="hero__bg"></div>
+          <div class="hero__content flex--between" style="gap:var(--spacing-24); max-width:none; width:100%">
+            <div>
+              <h1 class="hero__title" id="gw-name">Đang tải…</h1>
+              <p class="hero__desc" id="gw-desc"></p>
+            </div>
+            <button class="btn btn--primary" id="add-node-btn">+ Thêm nhà kính</button>
+          </div>
+        </section>
+
+        <!-- Vùng nội dung: empty-state khi chưa có / các nhà kính + 3 box cảm biến -->
+        <div id="gh-content" class="mt-24"></div>
+
+        <!-- Modal: Thêm nhà kính -->
+        <div class="modal-overlay" id="node-modal" aria-hidden="true">
+          <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="node-modal-title">
+            <h3 class="modal-box__title" id="node-modal-title">Danh sách nhà kính khả dụng</h3>
+            <p class="modal-box__desc">Bấm "Kiểm tra" để quét các nhà kính đang khả dụng.</p>
+            <form id="node-form">
+              <button type="button" class="btn btn--ghost btn--block" id="n-check">Kiểm tra</button>
+              <p id="n-searching" class="text-muted" style="font-size:var(--text-body-sm); margin-top:var(--spacing-8)" hidden>Đang tìm kiếm...</p>
+              <div id="n-list" class="hex-list" hidden></div>
+              <div class="field" id="n-name-wrap" hidden style="margin-top:var(--spacing-16)">
+                <label for="n-name">Đặt tên nhà kính</label>
+                <input id="n-name" type="text" placeholder="VD: Nhà kính khu A" />
+              </div>
+              <div class="modal-actions">
+                <button type="button" class="btn btn--ghost" id="n-cancel">Hủy</button>
+                <button type="submit" class="btn btn--primary" id="n-add" hidden>Thêm</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Modal: Chỉnh sửa nhà kính -->
+        <div class="modal-overlay" id="edit-modal" aria-hidden="true">
+          <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+            <h3 class="modal-box__title" id="edit-modal-title">Chỉnh sửa nhà kính</h3>
+            <p class="modal-box__desc">Cập nhật thông tin nhà kính.</p>
+            <form id="edit-form">
+              <div class="field">
+                <label for="e-name">Tên nhà kính</label>
+                <input id="e-name" type="text" placeholder="VD: Nhà kính khu A" />
+              </div>
+              <div class="field">
+                <label for="e-mac">MAC</label>
+                <input id="e-mac" type="text" readonly />
+              </div>
+              <div class="modal-actions">
+                <button type="button" class="btn btn--ghost" id="e-cancel">Hủy</button>
+                <button type="button" class="btn btn--danger" id="e-delete">Xóa</button>
+                <button type="submit" class="btn btn--primary">Lưu</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { showToast, confirmDialog } from "/js/notify.js";
+    import { icon } from "/js/icons.js";
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "projects" });
+    renderHeader({ title: "Chi tiết dự án" });
+
+    function escapeHtml(str = "") {
+      return String(str).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    const params = new URLSearchParams(location.search);
+    const gatewayId = params.get("id");
+
+    let nodes = [];
+
+    // Mỗi nhà kính = 1 card (giống card dự án); bấm vào → trang chi tiết nhà kính.
+    function nodeCard(node) {
+      const div = document.createElement("div");
+      div.className = "gh-card";
+      div.innerHTML = `
+        <button class="gh-card__edit" type="button" title="Chỉnh sửa nhà kính" aria-label="Chỉnh sửa nhà kính">${icon("edit", { size: "18px" })}</button>
+        <div class="gh-card__banner">
+          <div class="gh-card__banner-text">
+            <div class="gh-card__gw">${escapeHtml(node.name || "Nhà kính")}</div>
+          </div>
+          <div class="gh-card__banner-icon">${icon("duo:leaf", { size: "22px" })}</div>
+        </div>
+        <div class="gh-card__body">
+          <div class="gh-card__title">Nhà kính</div>
+          <div class="gh-card__addr">${escapeHtml(node.mac || node.id)}</div>
+        </div>`;
+      div.querySelector(".gh-card__edit").addEventListener("click", (e) => {
+        e.stopPropagation();
+        openEditModal(node);
+      });
+      div.addEventListener("click", () => {
+        location.href = `node-details.html?id=${node.id}`;
+      });
+      return div;
+    }
+
+    function renderContent() {
+      const c = document.getElementById("gh-content");
+      c.innerHTML = "";
+      if (!nodes.length) {
+        c.innerHTML = `<div class="empty">
+          <div class="empty__icon">🌱</div>
+          <p>Chưa có nhà kính. Bấm "Thêm nhà kính" để bắt đầu.</p></div>`;
+        return;
+      }
+      const grid = document.createElement("div");
+      grid.className = "grid grid--3";
+      for (const nd of nodes) grid.appendChild(nodeCard(nd));
+      c.appendChild(grid);
+    }
+
+    async function load() {
+      if (!gatewayId) { showToast("Thiếu mã gateway", "error"); return; }
+      showSpinner();
+      try {
+        const [gw, nds] = await Promise.all([
+          apiFetch(`/gateways/${gatewayId}`),
+          apiFetch(`/nodes?gatewayId=${gatewayId}`),
+        ]);
+        // Card chỉ hiện node ĐÃ đặt tên (đã adopt). Node name rỗng đang chờ ở modal "Thêm".
+        nodes = nds.filter((n) => n.name && n.name.trim());
+        document.getElementById("gw-name").textContent = gw.projectName || gw.gatewayName || "Dự án";
+        document.getElementById("gw-desc").textContent = gw.gatewayAddress || "";
+        renderContent();
+      } catch (e) {
+        showToast("Không tải được chi tiết dự án", "error");
+        document.getElementById("gw-name").textContent = "Không tải được dữ liệu";
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    // ----- Modal Thêm nhà kính -----
+    const nodeModal = document.getElementById("node-modal");
+    const nodeForm = document.getElementById("node-form");
+    const nList = document.getElementById("n-list");
+    const nSearching = document.getElementById("n-searching");
+    const nCheck = document.getElementById("n-check");
+    const nNameWrap = document.getElementById("n-name-wrap");
+    const nAdd = document.getElementById("n-add");
+    let selectedNode = null; // { id, mac }
+    let scanToken = 0; // tăng mỗi lần modal đóng/mở -> kết quả quét cũ tự bỏ qua
+
+    function resetNodeModal() {
+      scanToken++; // hủy hiệu lực mọi checkAvailable() đang chạy ngầm
+      nodeForm.reset();
+      nSearching.hidden = true;
+      nCheck.disabled = false;
+      nList.hidden = true;
+      nList.innerHTML = "";
+      nNameWrap.hidden = true;
+      nAdd.hidden = true;
+      selectedNode = null;
+    }
+    function openNodeModal() {
+      resetNodeModal();
+      nodeModal.classList.add("is-open");
+      nodeModal.setAttribute("aria-hidden", "false");
+    }
+    function closeNodeModal() {
+      nodeModal.classList.remove("is-open");
+      nodeModal.setAttribute("aria-hidden", "true");
+      resetNodeModal();
+    }
+
+    async function checkAvailable() {
+      const myToken = ++scanToken;
+      nCheck.disabled = true;
+      nList.hidden = true;
+      nList.innerHTML = "";
+      nSearching.hidden = false;
+      try {
+        // "Nhà kính khả dụng" = node thuộc gateway này, do MQTT tự sinh nhưng CHƯA đặt tên
+        // (name rỗng). User đặt tên = "adopt" node, không tạo node mới.
+        await apiFetch(`/gateways/${gatewayId}/scan-nodes`, { method: "POST" });
+        // Gateway gom kết quả quét trong ~18s (9 gói x 2s, SCAN_MAX_PACKETS) rồi publish 1 lần
+        // — đợi đủ thời gian campaign (không hiện sớm dần) rồi đọc 1 lần để hiện toàn bộ MAC
+        // cùng lúc. Chờ 20s = 18s campaign + biên cho ScanResponse gói cuối về + backend ghi DB.
+        await new Promise((resolve) => setTimeout(resolve, 20000));
+        if (myToken !== scanToken) return; // modal đã đóng/mở lại -> bỏ kết quả này
+
+        const all = await apiFetch(`/nodes?gatewayId=${gatewayId}`);
+        if (myToken !== scanToken) return;
+
+        const avail = all.filter((n) => !(n.name && n.name.trim()));
+        nNameWrap.hidden = true;
+        nAdd.hidden = true;
+        selectedNode = null;
+        if (!avail.length) {
+          nList.hidden = false;
+          nList.innerHTML = `<p class="text-muted" style="font-size:var(--text-body-sm)">Không tìm thấy nhà kính khả dụng.</p>`;
+          return;
+        }
+        nList.innerHTML = avail
+          .map((a) =>
+            `<button type="button" class="hex-item" data-id="${escapeHtml(a.id)}" data-mac="${escapeHtml(a.mac)}">${escapeHtml(a.mac)}</button>`
+          )
+          .join("");
+        nList.hidden = false;
+        showToast(`Tìm thấy ${avail.length} nhà kính khả dụng`, "success");
+      } catch (e) {
+        if (myToken === scanToken) showToast("Lỗi khi kiểm tra", "error");
+      } finally {
+        if (myToken === scanToken) {
+          nSearching.hidden = true;
+          nCheck.disabled = false;
+        }
+      }
+    }
+
+    nList.addEventListener("click", (e) => {
+      const btn = e.target.closest(".hex-item");
+      if (!btn) return;
+      nList.querySelectorAll(".hex-item").forEach((b) => b.classList.remove("is-selected"));
+      btn.classList.add("is-selected");
+      selectedNode = { id: btn.dataset.id, mac: btn.dataset.mac };
+      nNameWrap.hidden = false;
+      nAdd.hidden = false;
+      document.getElementById("n-name").focus();
+    });
+
+    document.getElementById("add-node-btn").addEventListener("click", openNodeModal);
+    document.getElementById("n-cancel").addEventListener("click", closeNodeModal);
+    document.getElementById("n-check").addEventListener("click", checkAvailable);
+    nodeModal.addEventListener("click", (e) => { if (e.target === nodeModal) closeNodeModal(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && nodeModal.classList.contains("is-open")) closeNodeModal();
+    });
+
+    nodeForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!selectedNode) { showToast("Hãy chọn một nhà kính", "warning"); return; }
+      const name = document.getElementById("n-name").value.trim();
+      if (!name) { showToast("Vui lòng đặt tên nhà kính", "warning"); return; }
+      showSpinner();
+      try {
+        // Node đã tồn tại (do MQTT tự sinh) → "adopt": đặt tên + đánh dấu registered.
+        await apiFetch(`/nodes/${selectedNode.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name, registered: true }),
+        });
+        // Tạo sẵn 3 thiết bị mặc định. Relay định danh bằng "pin" (1=Đèn, 2=Máy bơm, 3=Quạt) —
+        // khớp model Device + mqttHandler (handleNodeResponse tìm device theo pin).
+        // CHỈ tạo thiết bị còn THIẾU — tránh trùng nếu node đã từng được adopt (idempotent).
+        const existing = await apiFetch(`/devices?nodeId=${selectedNode.id}`);
+        const havePins = new Set(existing.map((d) => String(d.pin)));
+        const defaultDevices = [
+          { name: "Đèn", pin: "1" },
+          { name: "Máy bơm", pin: "2" },
+          { name: "Quạt", pin: "3" },
+        ].filter((d) => !havePins.has(d.pin));
+        await Promise.all(
+          defaultDevices.map((d) =>
+            apiFetch("/devices", {
+              method: "POST",
+              body: JSON.stringify({
+                gatewayId,
+                nodeId: selectedNode.id,
+                name: d.name,
+                pin: d.pin,
+                status: false,
+              }),
+            })
+          )
+        );
+        showToast("Đã thêm nhà kính", "success");
+        closeNodeModal();
+        await load();
+      } catch (e) {
+        showToast("Không thêm được nhà kính", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    // ----- Modal Chỉnh sửa nhà kính -----
+    const editModal = document.getElementById("edit-modal");
+    const editForm = document.getElementById("edit-form");
+    let editingNodeId = null;
+
+    function openEditModal(node) {
+      editingNodeId = node.id;
+      document.getElementById("e-name").value = node.name || "";
+      document.getElementById("e-mac").value = node.mac || "";
+      editModal.classList.add("is-open");
+      editModal.setAttribute("aria-hidden", "false");
+      document.getElementById("e-name").focus();
+    }
+    function closeEditModal() {
+      editModal.classList.remove("is-open");
+      editModal.setAttribute("aria-hidden", "true");
+      editingNodeId = null;
+      editForm.reset();
+    }
+
+    document.getElementById("e-cancel").addEventListener("click", closeEditModal);
+    editModal.addEventListener("click", (e) => { if (e.target === editModal) closeEditModal(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && editModal.classList.contains("is-open")) closeEditModal();
+    });
+
+    editForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!editingNodeId) return;
+      const name = document.getElementById("e-name").value.trim();
+      if (!name) { showToast("Vui lòng nhập tên nhà kính", "warning"); return; }
+      showSpinner();
+      try {
+        await apiFetch(`/nodes/${editingNodeId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name }),
+        });
+        showToast("Đã cập nhật nhà kính", "success");
+        closeEditModal();
+        await load();
+      } catch (e) {
+        showToast("Không cập nhật được nhà kính", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    document.getElementById("e-delete").addEventListener("click", async () => {
+      if (!editingNodeId) return;
+      const id = editingNodeId;
+      const ok = await confirmDialog("Bạn có chắc muốn xóa nhà kính này? Các thiết bị bên trong cũng bị xóa.", {
+        title: "Xóa nhà kính",
+        okText: "Xóa",
+        danger: true,
+      });
+      if (!ok) return;
+      showSpinner();
+      try {
+        // Xóa thiết bị thuộc nhà kính trước, rồi xóa node.
+        const devices = await apiFetch(`/devices?nodeId=${id}`);
+        await Promise.all(devices.map((d) => apiFetch(`/devices/${d.id}`, { method: "DELETE" })));
+        await apiFetch(`/nodes/${id}`, { method: "DELETE" });
+        showToast("Đã xóa nhà kính", "success");
+        closeEditModal();
+        await load();
+      } catch (e) {
+        showToast("Không xóa được nhà kính", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    load();
+  </script>
+</body>
+</html>

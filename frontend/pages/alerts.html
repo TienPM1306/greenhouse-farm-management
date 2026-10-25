@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cảnh báo — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/alerts.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <div class="page-head flex--between">
+          <div>
+            <span class="eyebrow">Hệ thống</span>
+            <h1 class="section-title">Lịch sử cảnh báo</h1>
+          </div>
+          <button type="button" class="btn btn--ghost btn--sm" id="clear-all">Xóa tất cả</button>
+        </div>
+
+        <div class="al-tabs" id="tabs"></div>
+
+        <div class="card">
+          <div id="alert-list"></div>
+        </div>
+
+        <div class="al-pager" id="pager"></div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch, SERVER_URL, getToken } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { showToast, confirmDialog } from "/js/notify.js";
+    import { icon } from "/js/icons.js";
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "alerts" });
+    renderHeader({ title: "Cảnh báo" });
+
+    // Hiện dự án chỉ sinh notify type "warning" (cảm biến vượt ngưỡng — mqttHandler.checkThreshold).
+    // error/info đã bỏ vì không luồng nào tạo ra. Thêm lại nếu sau này có luồng sinh chúng.
+    const TYPE_META = {
+      warning: { label: "Cảnh báo", icon: "duo:alertTriangle", color: "#b8860b", chip: "chip--off", bg: "rgba(202,168,58,.16)" },
+    };
+    const FILTERS = [
+      ["all", "Tất cả"], ["warning", "Cảnh báo"],
+    ];
+    const PAGE_SIZE = 15;
+
+    function escapeHtml(str = "") {
+      return String(str).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    let notifies = [];
+    let activeType = "all";
+    let page = 1;
+
+    function filtered() {
+      return notifies
+        .filter((n) => activeType === "all" || n.type === activeType)
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+
+    async function deleteOne(id) {
+      if (!(await confirmDialog("Xóa cảnh báo này?", { okText: "Xóa", danger: true }))) return;
+      try {
+        await apiFetch(`/notifies/${id}`, { method: "DELETE" });
+        notifies = notifies.filter((n) => n.id !== id);
+        showToast("Đã xóa cảnh báo", "success");
+        render();
+      } catch {
+        showToast("Không xóa được cảnh báo", "error");
+      }
+    }
+
+    async function clearAll() {
+      const list = filtered();
+      if (!list.length) return;
+      if (!(await confirmDialog(`Xóa ${list.length} cảnh báo?`, { okText: "Xóa hết", danger: true }))) return;
+      showSpinner();
+      try {
+        await Promise.all(list.map((n) => apiFetch(`/notifies/${n.id}`, { method: "DELETE" })));
+        const ids = new Set(list.map((n) => n.id));
+        notifies = notifies.filter((n) => !ids.has(n.id));
+        showToast("Đã xóa cảnh báo", "success");
+        page = 1;
+        render();
+      } catch {
+        showToast("Không xóa được một số cảnh báo", "error");
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    function renderTabs() {
+      const box = document.getElementById("tabs");
+      box.innerHTML = "";
+      FILTERS.forEach(([key, text]) => {
+        const count = key === "all"
+          ? notifies.length
+          : notifies.filter((n) => n.type === key).length;
+        const b = document.createElement("button");
+        b.className = "al-tab" + (key === activeType ? " is-active" : "");
+        b.textContent = `${text} (${count})`;
+        b.addEventListener("click", () => {
+          activeType = key;
+          page = 1;
+          render();
+        });
+        box.appendChild(b);
+      });
+    }
+
+    function render() {
+      renderTabs();
+      const list = filtered();
+      const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+      if (page > totalPages) page = totalPages;
+      const slice = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+      const box = document.getElementById("alert-list");
+      if (!slice.length) {
+        box.innerHTML = `<div class="empty"><div class="empty__icon">🔕</div>
+          <p>Không có cảnh báo nào.</p></div>`;
+      } else {
+        box.innerHTML = "";
+        slice.forEach((n) => {
+          const m = TYPE_META[n.type] || TYPE_META.warning;
+          const time = new Date(n.createdAt).toLocaleString("vi-VN");
+          const row = document.createElement("div");
+          row.className = "al-row";
+          row.innerHTML = `
+            <div class="al-row__icon" style="background:${m.bg};color:${m.color}">${icon(m.icon, { size: "18px" })}</div>
+            <div class="al-row__body">
+              <div class="al-row__title">${escapeHtml(n.title)}</div>
+              <div class="al-row__msg">${escapeHtml(n.message || "")}</div>
+              <div class="al-row__time">${time}</div>
+            </div>`;
+          const del = document.createElement("button");
+          del.className = "al-row__del";
+          del.title = "Xóa";
+          del.textContent = "🗑";
+          del.addEventListener("click", () => deleteOne(n.id));
+          row.appendChild(del);
+          box.appendChild(row);
+        });
+      }
+
+      // Phân trang
+      const pager = document.getElementById("pager");
+      pager.innerHTML = "";
+      if (list.length > PAGE_SIZE) {
+        const prev = document.createElement("button");
+        prev.className = "btn btn--ghost btn--sm";
+        prev.textContent = "← Trước";
+        prev.disabled = page <= 1;
+        prev.addEventListener("click", () => { page--; render(); });
+
+        const info = document.createElement("span");
+        info.className = "text-muted";
+        info.textContent = `Trang ${page}/${totalPages}`;
+
+        const next = document.createElement("button");
+        next.className = "btn btn--ghost btn--sm";
+        next.textContent = "Sau →";
+        next.disabled = page >= totalPages;
+        next.addEventListener("click", () => { page++; render(); });
+
+        pager.append(prev, info, next);
+      }
+    }
+
+    async function load() {
+      showSpinner();
+      try {
+        notifies = await apiFetch("/notifies");
+        render();
+      } catch (e) {
+        showToast("Không tải được cảnh báo", "error");
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    document.getElementById("clear-all").addEventListener("click", clearAll);
+
+    // Realtime: nghe cảnh báo mới qua SSE (tái dùng /events như trang thiết bị).
+    // Backend broadcast {newNotify:<notify>} trong checkThreshold khi cảm biến vượt ngưỡng.
+    function subscribeAlerts() {
+      const events = new EventSource(`${SERVER_URL}/events?token=${encodeURIComponent(getToken())}`);
+      events.onmessage = (e) => {
+        let payload;
+        try { payload = JSON.parse(e.data); } catch { return; }
+        if (!payload.newNotify) return;
+        // Tránh trùng nếu đã có (id) rồi thêm vào đầu danh sách + render lại.
+        if (notifies.some((n) => n.id === payload.newNotify.id)) return;
+        notifies.unshift(payload.newNotify);
+        render();
+        showToast(payload.newNotify.title || "Có cảnh báo mới", "warning");
+      };
+    }
+
+    load();
+    subscribeAlerts();
+  </script>
+</body>
+</html>

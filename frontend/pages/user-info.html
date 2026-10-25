@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tài khoản — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/user-info.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <div class="page-head">
+          <span class="eyebrow">Cá nhân</span>
+          <h1 class="section-title">Thông tin tài khoản</h1>
+          <p class="text-muted mt-16">Xem thông tin tài khoản. Bấm biểu tượng chỉnh sửa để cập nhật.</p>
+        </div>
+
+        <!-- ============ CHẾ ĐỘ XEM (thẻ tĩnh) — mặc định ============ -->
+        <!-- Thẻ tĩnh chia 2 vùng (cùng 1 thẻ): trái = avatar + tên; phải = thông tin -->
+        <div class="card ui-view" id="view-card">
+          <button type="button" class="ui-view__edit" id="edit-btn"
+                  title="Chỉnh sửa thông tin" aria-label="Chỉnh sửa thông tin"></button>
+
+          <!-- Vùng trái: avatar lớn (hover → lớp phủ "Đổi ảnh" kiểu Facebook) + tên + username -->
+          <div class="ui-view__side">
+            <button type="button" class="ui-view__avatar" id="avatar-edit-btn"
+                    title="Đổi ảnh đại diện" aria-label="Đổi ảnh đại diện">
+              <span class="ui-view__avatar-media" id="view-avatar"></span>
+              <span class="ui-view__avatar-overlay" aria-hidden="true">
+                <span class="ui-view__avatar-cam" id="view-avatar-cam"></span>
+                <span class="ui-view__avatar-text">Đổi ảnh</span>
+              </span>
+            </button>
+            <h2 class="ui-view__name" id="view-name">—</h2>
+            <span class="ui-view__username" id="view-username">—</span>
+          </div>
+          <input type="file" id="view-avatar-file" accept="image/*" hidden />
+
+          <!-- Vùng phải: danh sách thông tin -->
+          <div class="ui-view__info">
+            <dl class="ui-view__list">
+              <div class="ui-view__row">
+                <dt>Số điện thoại</dt>
+                <dd id="view-phone">—</dd>
+              </div>
+              <div class="ui-view__row">
+                <dt>Địa chỉ</dt>
+                <dd id="view-home">—</dd>
+              </div>
+              <div class="ui-view__row">
+                <dt>Ngày sinh</dt>
+                <dd id="view-birth">—</dd>
+              </div>
+              <div class="ui-view__row">
+                <dt>Email</dt>
+                <dd id="view-email">—</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+
+        <!-- ============ CHẾ ĐỘ CHỈNH SỬA — modal nổi (nền mờ), bật khi bấm icon "thay đổi" ============ -->
+        <div class="modal-overlay" id="edit-modal" aria-hidden="true">
+         <div class="modal-box ui-modal-box" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title">
+          <h3 class="modal-box__title" id="edit-modal-title">Chỉnh sửa thông tin tài khoản</h3>
+          <p class="modal-box__desc">Cập nhật hồ sơ và mật khẩu của bạn.</p>
+          <div id="edit-grid">
+          <!-- Form hồ sơ (avatar đổi trực tiếp ở thẻ tĩnh nên không còn trong box này) -->
+          <div class="card">
+            <form class="ui-form" id="profile-form" novalidate>
+              <div class="field">
+                <label for="f-lastname">Họ <span class="req">*</span></label>
+                <input id="f-lastname" name="lastname" type="text" autocomplete="family-name" placeholder="Nguyễn Văn" />
+              </div>
+              <div class="field">
+                <label for="f-firstname">Tên <span class="req">*</span></label>
+                <input id="f-firstname" name="firstname" type="text" autocomplete="given-name" placeholder="An" />
+              </div>
+              <div class="field field--full">
+                <label for="f-username">Tên đăng nhập</label>
+                <input id="f-username" name="username" type="text" disabled />
+              </div>
+              <div class="field">
+                <label for="f-birth">Ngày sinh <span class="req">*</span></label>
+                <input id="f-birth" name="birth" type="date" />
+              </div>
+              <div class="field">
+                <label for="f-phone">Số điện thoại <span class="req">*</span></label>
+                <input id="f-phone" name="phone" type="tel" autocomplete="tel" />
+              </div>
+              <div class="field field--full">
+                <label for="f-email">Email <span class="req">*</span></label>
+                <input id="f-email" name="email" type="email" autocomplete="email" />
+              </div>
+              <div class="field field--full">
+                <label for="f-home">Địa chỉ <span class="req">*</span></label>
+                <input id="f-home" name="home" type="text" />
+              </div>
+              <div class="ui-actions">
+                <button type="submit" class="btn btn--primary">Lưu thay đổi</button>
+                <button type="button" class="btn btn--ghost" id="cancel-edit-btn">Hủy</button>
+              </div>
+            </form>
+
+            <!-- Khối đổi mật khẩu — luôn hiện trong chế độ chỉnh sửa -->
+            <form class="ui-pwd" id="password-form">
+              <div class="field field--full">
+                <label for="f-current-pwd">Nhập mật khẩu hiện tại <span class="req">*</span></label>
+                <input id="f-current-pwd" name="currentPassword" type="password"
+                       autocomplete="current-password" />
+              </div>
+              <div class="field field--full">
+                <label for="f-new-pwd">Mật khẩu mới <span class="req">*</span></label>
+                <input id="f-new-pwd" name="newPassword" type="password"
+                       autocomplete="new-password" minlength="4" />
+              </div>
+              <div class="field field--full">
+                <label for="f-confirm-pwd">Xác nhận mật khẩu <span class="req">*</span></label>
+                <input id="f-confirm-pwd" name="confirmPassword" type="password"
+                       autocomplete="new-password" minlength="4" />
+              </div>
+              <div class="ui-pwd__actions">
+                <button type="submit" class="btn btn--primary">Xác nhận</button>
+              </div>
+            </form>
+          </div>
+          </div>
+         </div>
+        </div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch, getCurrentUserId } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { showToast } from "/js/notify.js";
+    import { icon } from "/js/icons.js";
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "user" });
+    renderHeader({ title: "Tài khoản" });
+
+    const userId = getCurrentUserId();
+    const $ = (id) => document.getElementById(id);
+
+    // Icon "thay đổi" (bút chì) ở góc trên phải thẻ xem
+    $("edit-btn").innerHTML = icon("edit", { size: "18px" });
+    // Icon máy ảnh cho lớp phủ "Đổi ảnh" trên avatar (kiểu Facebook)
+    $("view-avatar-cam").innerHTML = icon("duo:camera", { size: "26px" });
+
+    // currentUser: bản ghi user vừa tải (dùng để đối chiếu mật khẩu hiện tại khi đổi).
+    let currentUser = null;
+    // Form đổi mật khẩu (luôn hiện trong chế độ chỉnh sửa).
+    const pwdForm = $("password-form");
+
+    function initials(name = "") {
+      const parts = name.trim().split(/\s+/);
+      return ((parts[0]?.[0] || "") + (parts.at(-1)?.[0] || "")).toUpperCase() || "U";
+    }
+
+    // DB chỉ có 1 trường `name` (khớp firmware/mẫu). Trên UI tách thành Họ + Tên:
+    //  - Họ = mọi từ trừ từ cuối; Tên = từ cuối (quy ước tên người Việt).
+    function splitName(full = "") {
+      const parts = full.trim().split(/\s+/).filter(Boolean);
+      if (parts.length <= 1) return { last: "", first: parts[0] || "" };
+      return { last: parts.slice(0, -1).join(" "), first: parts.at(-1) };
+    }
+    // Ghép lại "Họ Tên" để lưu vào trường name.
+    function joinName(last = "", first = "") {
+      return [last.trim(), first.trim()].filter(Boolean).join(" ");
+    }
+
+    // Vẽ ảnh đại diện vào một khung; src rỗng → hiện chữ cái viết tắt.
+    function renderMedia(el, src, name) {
+      if (src) {
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = "Ảnh đại diện";
+        img.onerror = () => { el.textContent = initials(name); };
+        el.innerHTML = "";
+        el.appendChild(img);
+      } else {
+        el.textContent = initials(name);
+      }
+    }
+
+    // Định dạng ngày sinh "YYYY-MM-DD" → "DD/MM/YYYY" cho thẻ xem.
+    function formatBirth(birth = "") {
+      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birth);
+      return m ? `${m[3]}/${m[2]}/${m[1]}` : (birth || "—");
+    }
+
+    // Vẽ thẻ XEM (tĩnh): avatar tròn + họ tên + sđt/địa chỉ/ngày sinh/email.
+    function paintView(user) {
+      renderMedia($("view-avatar"), user.avatar, user.name);
+      $("view-name").textContent = user.name || "Người dùng";
+      $("view-username").textContent = "@" + (user.username || "");
+      $("view-phone").textContent = user.phone || "—";
+      $("view-home").textContent = user.home || "—";
+      $("view-birth").textContent = formatBirth(user.birth);
+      $("view-email").textContent = user.email || "—";
+    }
+
+    function fillForm(user) {
+      const { last, first } = splitName(user.name || "");
+      $("f-lastname").value = last;
+      $("f-firstname").value = first;
+      $("f-username").value = user.username || "";
+      $("f-birth").value = user.birth || "";
+      $("f-phone").value = user.phone || "";
+      $("f-email").value = user.email || "";
+      $("f-home").value = user.home || "";
+    }
+
+    // Nén ảnh phía client: thu về tối đa MAX px (cạnh dài), xuất JPEG ~0.82.
+    // Trả về chuỗi data URL base64 — đủ nhẹ để lưu thẳng vào db.json.
+    function compressImage(file, max = 256) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            let { width, height } = img;
+            if (width > height && width > max) {
+              height = Math.round((height * max) / width);
+              width = max;
+            } else if (height > max) {
+              width = Math.round((width * max) / height);
+              height = max;
+            }
+            const canvas = document.createElement("canvas");
+            canvas.width = width;
+            canvas.height = height;
+            canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL("image/jpeg", 0.82));
+          };
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // ----- Đổi ảnh đại diện trực tiếp ở thẻ tĩnh -----
+    // Bấm icon "thay đổi" trên avatar → mở hộp thoại chọn file.
+    $("avatar-edit-btn").addEventListener("click", () => $("view-avatar-file").click());
+
+    $("view-avatar-file").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) {
+        showToast("Vui lòng chọn tệp ảnh", "warning");
+        e.target.value = "";
+        return;
+      }
+      showSpinner();
+      try {
+        const avatar = await compressImage(file);
+        // Lưu ngay lên server rồi cập nhật thẻ tĩnh.
+        const updated = await apiFetch(`/users/${userId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ avatar }),
+        });
+        currentUser = updated;
+        paintView(updated);
+        window.dispatchEvent(new CustomEvent("user:updated", { detail: updated }));
+        showToast("Đã cập nhật ảnh đại diện", "success");
+      } catch {
+        showToast("Không cập nhật được ảnh", "error");
+      } finally {
+        hideSpinner();
+        e.target.value = ""; // cho phép chọn lại cùng 1 file
+      }
+    });
+
+    async function load() {
+      showSpinner();
+      try {
+        const user = await apiFetch(`/users/${userId}`);
+        currentUser = user;
+        paintView(user);
+        fillForm(user);
+      } catch (e) {
+        showToast("Không tải được thông tin tài khoản", "error");
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    // ----- Modal chỉnh sửa (nổi, nền mờ) -----
+    const editModal = $("edit-modal");
+
+    // Mở modal: nạp lại form từ bản ghi hiện tại + reset ô mật khẩu.
+    function showEdit() {
+      if (currentUser) fillForm(currentUser);
+      pwdForm.reset();
+      // Xóa mọi viền đỏ cũ trước khi mở
+      editModal.querySelectorAll(".is-invalid").forEach((el) => el.classList.remove("is-invalid"));
+      editModal.classList.add("is-open");
+      editModal.setAttribute("aria-hidden", "false");
+    }
+    // Đóng modal (Hủy / lưu xong / bấm nền / Escape).
+    function showView() {
+      editModal.classList.remove("is-open");
+      editModal.setAttribute("aria-hidden", "true");
+    }
+    $("edit-btn").addEventListener("click", showEdit);
+    $("cancel-edit-btn").addEventListener("click", () => {
+      if (currentUser) fillForm(currentUser); // bỏ thay đổi chưa lưu
+      showView();
+    });
+    // Bấm ra vùng nền mờ → đóng
+    editModal.addEventListener("click", (e) => { if (e.target === editModal) showView(); });
+    // Phím Escape → đóng
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && editModal.classList.contains("is-open")) showView();
+    });
+
+    // Đánh dấu ô lỗi (viền đỏ) + trả về true nếu mọi ô bắt buộc đã điền.
+    function validateRequired(fields) {
+      let firstInvalid = null;
+      for (const id of fields) {
+        const el = $(id);
+        const empty = !el.value.trim();
+        el.classList.toggle("is-invalid", empty);
+        if (empty && !firstInvalid) firstInvalid = el;
+      }
+      if (firstInvalid) firstInvalid.focus();
+      return !firstInvalid;
+    }
+
+    $("profile-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      // Bắt buộc: Họ, Tên, Ngày sinh, SĐT, Email, Địa chỉ (không bỏ sót).
+      const ok = validateRequired([
+        "f-lastname", "f-firstname", "f-birth", "f-phone", "f-email", "f-home",
+      ]);
+      if (!ok) {
+        showToast("Vui lòng nhập đầy đủ các trường bắt buộc (*)", "warning");
+        return;
+      }
+      const payload = {
+        name: joinName($("f-lastname").value, $("f-firstname").value),
+        birth: $("f-birth").value,
+        phone: $("f-phone").value.trim(),
+        email: $("f-email").value.trim(),
+        home: $("f-home").value.trim(),
+      };
+      showSpinner();
+      try {
+        const updated = await apiFetch(`/users/${userId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        currentUser = updated;
+        paintView(updated);
+        // Báo cho topbar + sidebar cập nhật chip/avatar ngay (không cần chuyển trang).
+        window.dispatchEvent(new CustomEvent("user:updated", { detail: updated }));
+        showToast("Cập nhật thành công", "success");
+        showView(); // quay lại thẻ xem tĩnh
+      } catch (e) {
+        showToast("Lưu thất bại", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    pwdForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      // Bắt buộc đủ 3 ô mật khẩu (không bỏ sót) — đánh dấu viền đỏ ô trống.
+      const filled = validateRequired(["f-current-pwd", "f-new-pwd", "f-confirm-pwd"]);
+      if (!filled) {
+        showToast("Vui lòng nhập đầy đủ các trường bắt buộc (*)", "warning");
+        return;
+      }
+      const current = $("f-current-pwd").value;
+      const next = $("f-new-pwd").value;
+      const confirm = $("f-confirm-pwd").value;
+
+      // Đối chiếu mật khẩu hiện tại với bản ghi đã tải.
+      if (!currentUser || current !== currentUser.password) {
+        showToast("Mật khẩu hiện tại không đúng", "error");
+        return;
+      }
+      if (next.length < 4) {
+        showToast("Mật khẩu mới phải có ít nhất 4 ký tự", "warning");
+        return;
+      }
+      if (next !== confirm) {
+        showToast("Xác nhận mật khẩu không khớp", "warning");
+        return;
+      }
+      if (next === current) {
+        showToast("Mật khẩu mới phải khác mật khẩu hiện tại", "warning");
+        return;
+      }
+
+      showSpinner();
+      try {
+        const updated = await apiFetch(`/users/${userId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ password: next }),
+        });
+        currentUser = updated;
+        pwdForm.reset();
+        showToast("Đổi mật khẩu thành công", "success");
+      } catch (e) {
+        showToast("Đổi mật khẩu thất bại", "error");
+      } finally {
+        hideSpinner();
+      }
+    });
+
+    // Gõ lại vào ô đang lỗi → bỏ viền đỏ ngay.
+    document.querySelectorAll("#profile-form input, #password-form input").forEach((el) => {
+      el.addEventListener("input", () => el.classList.remove("is-invalid"));
+    });
+
+    load();
+  </script>
+</body>
+</html>

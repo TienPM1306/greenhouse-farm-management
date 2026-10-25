@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thiết bị — Nông trại Nhà kính</title>
+  <link rel="stylesheet" href="/css/base.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/devices.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar"></aside>
+    <div class="app__main">
+      <header class="topbar"></header>
+      <main class="content">
+        <div class="page-head">
+          <span class="eyebrow">Điều khiển</span>
+          <h1 class="section-title">Tất cả thiết bị</h1>
+          <p class="text-muted mt-16">Bật/tắt và theo dõi mọi thiết bị, gom theo từng nhà kính.</p>
+        </div>
+
+        <section class="schedule-overview" aria-labelledby="schedule-overview-title">
+          <div class="schedule-overview__head">
+            <div>
+              <span class="eyebrow">Lịch hẹn giờ</span>
+              <h2 id="schedule-overview-title" class="schedule-overview__title">Lịch hôm nay</h2>
+            </div>
+            <span class="schedule-overview__count" id="schedule-overview-count">0 lịch đang bật</span>
+          </div>
+          <div class="schedule-overview__list" id="schedule-overview-list"></div>
+        </section>
+
+        <div class="dev-tabs" id="tabs"></div>
+        <div class="grid grid--2" id="dev-list"></div>
+
+        <div class="modal-overlay" id="schedule-modal" aria-hidden="true">
+          <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="sch-modal-title">
+            <h3 class="modal-box__title" id="sch-modal-title">Lịch hẹn giờ</h3>
+            <p class="modal-box__desc" id="sch-modal-desc"></p>
+            <div id="sch-list" class="mt-16"></div>
+            <button type="button" class="btn btn--ghost btn--block mt-16" id="sch-add-toggle">+ Thêm lịch mới</button>
+            <form id="sch-form" hidden class="mt-16">
+              <div class="time-pickers">
+                <div class="time-picker-group">
+                  <span class="time-picker-label">Bắt đầu</span>
+                  <div class="time-picker" id="picker-start">
+                    <div class="time-picker__col" id="drum-start-h" data-max="23"></div>
+                    <span class="time-picker__sep">:</span>
+                    <div class="time-picker__col" id="drum-start-m" data-max="59"></div>
+                  </div>
+                </div>
+                <div class="time-picker-group">
+                  <span class="time-picker-label">Kết thúc</span>
+                  <div class="time-picker" id="picker-end">
+                    <div class="time-picker__col" id="drum-end-h" data-max="23"></div>
+                    <span class="time-picker__sep">:</span>
+                    <div class="time-picker__col" id="drum-end-m" data-max="59"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-actions mt-16">
+                <button type="button" class="btn btn--ghost" id="sch-cancel">Hủy</button>
+                <button type="submit" class="btn btn--primary">Lưu</button>
+              </div>
+            </form>
+            <div class="modal-actions mt-16">
+              <button type="button" class="btn btn--ghost" id="sch-close">Đóng</button>
+            </div>
+          </div>
+        </div>
+      </main>
+      <footer class="footer"></footer>
+    </div>
+  </div>
+
+  <script type="module">
+    import { requireAuth, apiFetch, SERVER_URL, getToken } from "/js/user.js";
+    import { renderHeader } from "/js/header.js";
+    import { renderLeftnav } from "/js/leftnav.js";
+    import "/js/footer.js";
+    import { showSpinner, hideSpinner } from "/js/spinner.js";
+    import { showToast, confirmDialog } from "/js/notify.js";
+    import { icon } from "/js/icons.js";
+
+    // Đoán icon theo tên thiết bị (bơm/quạt/đèn) — mặc định ổ cắm.
+    function deviceIcon(name = "") {
+      const n = name.toLowerCase();
+      if (n.includes("bơm")) return "duo:pump";
+      if (n.includes("quạt")) return "duo:fan";
+      if (n.includes("đèn")) return "duo:lightbulb";
+      return "duo:plug";
+    }
+
+    if (!requireAuth()) throw new Error("chưa đăng nhập");
+
+    renderLeftnav({ active: "devices" });
+    renderHeader({ title: "Thiết bị" });
+
+    function escapeHtml(str = "") {
+      return String(str).replace(/[&<>"]/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+      );
+    }
+
+    let devices = [];
+    let nodes = [];
+    let activeNode = "all"; // "all" hoặc nodeId
+    let schedules = []; // toàn bộ schedules của user (không filter), gom theo deviceId ở client
+    let currentScheduleDevice = null; // device đang mở modal lịch
+    let editingSchedule = null; // lịch đang chỉnh sửa trong modal (null = tạo mới)
+
+    // Trần chờ ACK phía client (ms): 15s campaign firmware + biên độ jitter/MQTT.
+    const PENDING_FALLBACK_MS = 20000;
+
+    // Chống treo nút "pending": nếu Gateway im hoàn toàn (không ACK, không cả timeout),
+    // SSE không bao giờ bắn state kết thúc → nút khóa vĩnh viễn. Sau PENDING_FALLBACK_MS
+    // tự gỡ pending, giữ nguyên trạng thái cũ. Dùng cho CẢ điều khiển tay (toggleDevice)
+    // LẪN pending do lịch/cảm biến bật qua SSE (source schedule/sensor). Lưu handle trên
+    // device để lệnh mới clear timer cũ, tránh timer cũ gỡ nhầm pending mới.
+    function armPendingFallback(device) {
+      clearPendingFallback(device);
+      device._pendingTimer = setTimeout(() => {
+        device._pendingTimer = null;
+        if (!device._pending) return; // SSE đã xử lý xong
+        device._pending = false;
+        renderTabs();
+        renderList();
+        showToast(`Không nhận được phản hồi từ thiết bị "${device.name}" — giữ nguyên trạng thái`, "warning");
+      }, PENDING_FALLBACK_MS);
+    }
+    function clearPendingFallback(device) {
+      if (device._pendingTimer) {
+        clearTimeout(device._pendingTimer);
+        device._pendingTimer = null;
+      }
+    }
+
+    async function toggleDevice(device, on) {
+      // pin ("1"/"2"/"3") ↔ deviceId firmware (1=Đèn, 2=Máy bơm, 3=Quạt).
+      const deviceId = Number(device.pin);
+      if (!device.nodeId || ![1, 2, 3].includes(deviceId)) {
+        showToast("Thiết bị thiếu node/chân điều khiển hợp lệ", "error");
+        throw new Error("device thiếu nodeId/pin");
+      }
+
+      // 1) Gửi lệnh xuống PHẦN CỨNG THẬT qua backend: POST /nodes/:id/control.
+      //    Backend encode TLV → publish <gwMAC>/commands → Gateway → LoRa → NodeControl bật/tắt relay.
+      //    Cổng đăng ký ở backend: node chưa đăng ký → 403 (không điều khiển được).
+      try {
+        await apiFetch(`/nodes/${device.nodeId}/control`, {
+          method: "POST",
+          body: JSON.stringify({ deviceId, action: on ? "on" : "off" }),
+        });
+      } catch (e) {
+        // 403 = node chưa đăng ký; còn lại = lỗi gửi lệnh (MQTT/gateway…).
+        const msg = String(e.message || "").includes("403")
+          ? "Node chưa đăng ký — không điều khiển được thiết bị"
+          : "Không gửi được lệnh xuống phần cứng";
+        showToast(msg, "error");
+        throw e;
+      }
+
+      // 2) Lệnh đã gửi xuống Gateway — chờ ACK thật từ Node (~15s tối đa). KHÔNG đoán trước
+      //    status: Gateway sẽ publish node_response (ACK hoặc timeout state:-1), backend cập
+      //    nhật DB thật + đẩy qua SSE (xem sseSubscribe() phía dưới) rồi mới đổi UI.
+      device._pending = true;
+      armPendingFallback(device); // chống treo nếu Gateway im hoàn toàn (không ACK, không timeout)
+      renderTabs();
+      renderList();
+
+      // 3) Người dùng can thiệp tay → tắt mọi lịch Auto đang bật của thiết bị này,
+      //    tránh scheduler "cãi lại" hành động tay ở lượt quét phút sau (best-effort).
+      try {
+        const activeForDevice = schedules.filter((s) => s.deviceId === device.id && s.status);
+        await Promise.all(
+          activeForDevice.map((s) =>
+            apiFetch(`/schedules/${s.id}`, { method: "PATCH", body: JSON.stringify({ status: false }) })
+          )
+        );
+        activeForDevice.forEach((s) => { s.status = false; });
+        renderScheduleOverview();
+      } catch {
+        // best-effort, không chặn luồng bật/tắt chính
+      }
+
+      showToast(`Đang gửi lệnh ${on ? "bật" : "tắt"} ${device.name}...`, "success");
+    }
+
+    // Đổi chế độ điều khiển đèn/quạt: "manual" (bấm công tắc tay) | "auto" (theo cảm biến).
+    async function setDeviceMode(device, mode) {
+      try {
+        await apiFetch(`/devices/${device.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ mode }),
+        });
+        device.mode = mode;
+        showToast(`Đã chuyển ${device.name} sang ${mode === "auto" ? "Tự động" : "Thủ công"}`, "success");
+        renderList();
+      } catch {
+        showToast("Không đổi được chế độ", "error");
+      }
+    }
+
+    function nodeName(id) {
+      return nodes.find((n) => n.id === id)?.name || "Không rõ";
+    }
+
+    function activeScheduleCount(deviceId) {
+      return schedules.filter((s) => s.deviceId === deviceId && s.status).length;
+    }
+
+    function scheduleStartMinutes(sch) {
+      const d = new Date(sch.startTime);
+      return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function scheduleDevice(sch) {
+      return devices.find((d) => d.id === sch.deviceId);
+    }
+
+    // Lịch KHÔNG áp cho đèn (pin "1") — đèn chỉ Thủ công + Tự động (cảm biến).
+    // Nhận diện lịch đèn qua devicePin, fallback tra device theo deviceId nếu thiếu.
+    function isLightSchedule(s) {
+      if (s.devicePin != null) return String(s.devicePin) === "1";
+      const d = scheduleDevice(s);
+      return d ? String(d.pin) === "1" : false;
+    }
+
+    function renderScheduleOverview() {
+      const countEl = document.getElementById("schedule-overview-count");
+      const listEl = document.getElementById("schedule-overview-list");
+      const visible = schedules.filter((s) => !isLightSchedule(s));
+      const activeCount = visible.filter((s) => s.status).length;
+      countEl.textContent = `${activeCount} lịch đang bật`;
+
+      const list = visible
+        .slice()
+        .sort((a, b) => scheduleStartMinutes(a) - scheduleStartMinutes(b))
+        .slice(0, 5);
+
+      listEl.innerHTML = "";
+      if (!list.length) {
+        const empty = document.createElement("div");
+        empty.className = "schedule-overview__empty";
+        empty.textContent = "Chưa có lịch hẹn giờ. Mở biểu tượng lịch trên từng thiết bị để tạo lịch đầu tiên.";
+        listEl.appendChild(empty);
+        return;
+      }
+
+      list.forEach((s) => {
+        const d = scheduleDevice(s);
+        const n = d ? nodes.find((node) => node.id === d.nodeId) : null;
+        const item = document.createElement("article");
+        item.className = "schedule-overview__item" + (s.status ? " is-active" : "");
+
+        const time = document.createElement("div");
+        time.className = "schedule-overview__time";
+        time.textContent = `${fmtTimeHHMM(s.startTime)} – ${fmtTimeHHMM(s.endTime)}`;
+
+        const main = document.createElement("div");
+        main.className = "schedule-overview__main";
+        const name = document.createElement("strong");
+        name.className = "schedule-overview__device";
+        name.textContent = d ? d.name : (s.deviceName || "Thiết bị");
+        const meta = document.createElement("span");
+        meta.className = "schedule-overview__meta";
+        meta.textContent = `\u00A0\u00A0${n?.name || "Không rõ nhà kính"} · Hằng ngày`;
+        main.append(name, meta);
+
+        const status = document.createElement("span");
+        status.className = "schedule-overview__status" + (s.status ? " is-on" : "");
+        status.textContent = s.status ? "Auto bật" : "Đã tắt";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "schedule-overview__open";
+        btn.textContent = "Mở lịch";
+        btn.disabled = !d;
+        btn.addEventListener("click", () => {
+          if (!d) return;
+          activeNode = d.nodeId || "all";
+          renderTabs();
+          renderList();
+          openScheduleModal(d);
+        });
+
+        item.append(time, main, status, btn);
+        listEl.appendChild(item);
+      });
+    }
+
+    function devCard(d) {
+      const card = document.createElement("div");
+      card.className = "dev-card";
+      const left = document.createElement("div");
+      left.className = "dev-card__left";
+      left.innerHTML = `
+        <div class="dev-card__icon">${icon(deviceIcon(d.name), { size: "20px" })}</div>
+        <div>
+          <div class="dev-card__name">${escapeHtml(d.name)}</div>
+          <div class="dev-card__sub">${escapeHtml(nodeName(d.nodeId))} · ${escapeHtml(d.description || `Chân ${d.pin}`)}</div>
+        </div>`;
+
+      const right = document.createElement("div");
+      right.style.display = "flex";
+      right.style.alignItems = "center";
+      right.style.gap = "var(--spacing-8)";
+
+      // Đèn (pin "1") KHÔNG có lịch hẹn giờ — chỉ Thủ công + Tự động (cảm biến).
+      // Quạt/Máy bơm mới có nút lịch. Vì vậy chỉ tạo nút lịch cho thiết bị KHÔNG phải đèn.
+      const isLight = String(d.pin) === "1";
+      let schBtn = null;
+      if (!isLight) {
+        const activeCount = activeScheduleCount(d.id);
+        schBtn = document.createElement("button");
+        schBtn.type = "button";
+        schBtn.className = "dev-card__schedule-btn" + (activeCount > 0 ? " has-active" : "");
+        schBtn.title = "Lịch hẹn giờ";
+        // Dùng DOM thay vì innerHTML để tránh XSS lint — icon() trả SVG tĩnh,
+        // activeCount là số nguyên, nhưng giữ nhất quán với phong cách DOM trong file.
+        const clockIcon = document.createElement("span");
+        clockIcon.innerHTML = icon("clock", { size: "18px" }); // icon() = SVG tĩnh, không có input người dùng
+        schBtn.appendChild(clockIcon);
+        if (activeCount > 0) {
+          const badge = document.createElement("span");
+          badge.className = "dev-card__schedule-badge";
+          badge.textContent = String(activeCount);
+          schBtn.appendChild(badge);
+        }
+        schBtn.addEventListener("click", () => openScheduleModal(d));
+      }
+
+      const label = document.createElement("label");
+      label.className = "switch" + (d._pending ? " switch--pending" : "");
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = !!d.status;
+      input.disabled = !!d._pending;
+      const slider = document.createElement("span");
+      slider.className = "switch__slider";
+
+      // Đèn (pin "1") + Quạt (pin "3") có nút chế độ Thủ công/Tự động; ở chế độ Tự động
+      // khóa công tắc tay để tránh người dùng "cãi lại" điều kiện tự động.
+      const hasMode = String(d.pin) === "1" || String(d.pin) === "3";
+      const isAuto = hasMode && d.mode === "auto";
+      if (isAuto) {
+        input.disabled = true; // khóa công tắc tay khi Tự động
+      }
+      let modeBtn = null;
+      if (hasMode) {
+        modeBtn = document.createElement("button");
+        modeBtn.type = "button";
+        modeBtn.className = "btn btn--ghost btn--sm";
+        modeBtn.textContent = isAuto ? "Tự động" : "Thủ công";
+        modeBtn.title = "Đổi chế độ điều khiển thiết bị";
+        modeBtn.addEventListener("click", () =>
+          setDeviceMode(d, isAuto ? "manual" : "auto")
+        );
+      }
+
+      input.addEventListener("change", async () => {
+        input.disabled = true;
+        try {
+          await toggleDevice(d, input.checked);
+        } catch {
+          input.checked = !input.checked;
+          input.disabled = false;
+        }
+        // Không set input.disabled = false ở nhánh thành công: nút vẫn khóa
+        // trong lúc pending (d._pending === true) tới khi SSE xác nhận/timeout
+        // và renderList() dựng lại toàn bộ card.
+      });
+      label.append(input, slider);
+
+      if (modeBtn) right.append(modeBtn);
+      if (schBtn) right.append(schBtn);
+      right.append(label);
+      card.append(left, right);
+      return card;
+    }
+
+    function renderTabs() {
+      const box = document.getElementById("tabs");
+      const mk = (key, text) => {
+        const b = document.createElement("button");
+        b.className = "dev-tab" + (key === activeNode ? " is-active" : "");
+        b.textContent = text;
+        b.addEventListener("click", () => {
+          activeNode = key;
+          renderTabs();
+          renderList();
+        });
+        return b;
+      };
+      box.innerHTML = "";
+      box.appendChild(mk("all", `Tất cả (${devices.length})`));
+      nodes.forEach((n) => {
+        // Bỏ qua node "ma" (auto-provision từ phần cứng, chưa đặt tên) — tránh tab rác "(0)".
+        if (!n.name || !n.name.trim()) return;
+        const count = devices.filter((d) => d.nodeId === n.id).length;
+        box.appendChild(mk(n.id, `${n.name} (${count})`));
+      });
+    }
+
+    function renderList() {
+      const box = document.getElementById("dev-list");
+      const list = activeNode === "all"
+        ? devices
+        : devices.filter((d) => d.nodeId === activeNode);
+      box.innerHTML = "";
+      if (!list.length) {
+        box.innerHTML = `<div class="empty" style="grid-column:1/-1">
+          <div class="empty__icon">⚡</div><p>Không có thiết bị.</p></div>`;
+        return;
+      }
+      list.forEach((d) => box.appendChild(devCard(d)));
+    }
+
+    function connectEvents() {
+      const events = new EventSource(`${SERVER_URL}/events?token=${encodeURIComponent(getToken())}`);
+      events.onmessage = (e) => {
+        let payload;
+        try {
+          payload = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+        const { deviceId, state, status, source } = payload;
+        const d = devices.find((x) => x.id === deviceId);
+        if (!d) return;
+        if (state === "pending") {
+          const wasPending = !!d._pending;
+          d._pending = true;
+          armPendingFallback(d); // chống treo: lịch/cảm biến bật pending qua SSE cũng cần fallback
+          renderTabs();
+          renderList();
+          if (source === "schedule" && !wasPending) {
+            showToast(`Lịch đang gửi lệnh ${status ? "bật" : "tắt"} ${d.name}...`, "success");
+          }
+          return;
+        }
+        if (state === "error") {
+          clearPendingFallback(d);
+          d._pending = false;
+          renderTabs();
+          renderList();
+          showToast(`Lịch không gửi được lệnh cho ${d.name}`, "error");
+          return;
+        }
+        clearPendingFallback(d);
+        d._pending = false;
+        d.status = status;
+        if (state === "timeout") {
+          showToast(`Không nhận được phản hồi từ thiết bị "${d.name}" — giữ nguyên trạng thái`, "warning");
+        } else {
+          showToast(`${state === "on" ? "Đã bật" : "Đã tắt"} ${d.name}`, "success");
+        }
+        renderTabs();
+        renderList();
+      };
+    }
+
+    async function load() {
+      showSpinner();
+      try {
+        [devices, nodes, schedules] = await Promise.all([
+          apiFetch("/devices"),
+          apiFetch("/nodes"),
+          apiFetch("/schedules"),
+        ]);
+        renderTabs();
+        renderList();
+        renderScheduleOverview();
+      } catch (e) {
+        showToast("Không tải được danh sách thiết bị", "error");
+      } finally {
+        hideSpinner();
+      }
+    }
+
+    function fmtTimeHHMM(iso) {
+      const d = new Date(iso);
+      return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    }
+
+    // ── Drum picker (cuộn chọn giờ/phút kiểu iOS) ──────────────────────────
+    const ITEM_H = 52; // px, khớp CSS .time-picker__item height
+
+    function buildDrum(colEl) {
+      const max = parseInt(colEl.dataset.max, 10);
+      colEl.innerHTML = "";
+      for (let i = 0; i <= max; i++) {
+        const item = document.createElement("div");
+        item.className = "time-picker__item";
+        item.textContent = String(i).padStart(2, "0");
+        item.dataset.val = i;
+        colEl.appendChild(item);
+      }
+      updateDrumHighlight(colEl);
+      colEl.onscroll = () => updateDrumHighlight(colEl);
+      colEl.onwheel = (ev) => {
+        ev.preventDefault();
+        const step = ev.deltaY > 0 ? 1 : -1;
+        drumSetValue(colEl, drumGetValue(colEl) + step);
+      };
+    }
+
+    function updateDrumHighlight(colEl) {
+      const idx = Math.round(colEl.scrollTop / ITEM_H);
+      colEl.querySelectorAll(".time-picker__item").forEach((el, i) => {
+        el.classList.toggle("is-selected", i === idx);
+      });
+    }
+
+    function drumGetValue(colEl) {
+      const max = parseInt(colEl.dataset.max, 10);
+      return Math.max(0, Math.min(max, Math.round(colEl.scrollTop / ITEM_H)));
+    }
+
+    function drumSetValue(colEl, val) {
+      const max = parseInt(colEl.dataset.max, 10);
+      const next = Math.max(0, Math.min(max, val));
+      colEl.scrollTop = next * ITEM_H;
+      updateDrumHighlight(colEl);
+    }
+
+    function initDrums() {
+      ["drum-start-h", "drum-start-m", "drum-end-h", "drum-end-m"].forEach((id) => {
+        buildDrum(document.getElementById(id));
+      });
+      // mặc định: bắt đầu 06:00, kết thúc 18:00
+      drumSetValue(document.getElementById("drum-start-h"), 6);
+      drumSetValue(document.getElementById("drum-start-m"), 0);
+      drumSetValue(document.getElementById("drum-end-h"), 18);
+      drumSetValue(document.getElementById("drum-end-m"), 0);
+    }
+
+    function drumReadHHMM(hId, mId) {
+      const h = drumGetValue(document.getElementById(hId));
+      const m = drumGetValue(document.getElementById(mId));
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    }
+    // ── end drum picker ──────────────────────────────────────────────────────
+
+    function scheduleHHMMParts(iso) {
+      const d = new Date(iso);
+      return { h: d.getHours(), m: d.getMinutes() };
+    }
+
+    function showScheduleForm(schedule = null) {
+      editingSchedule = schedule;
+      const form = document.getElementById("sch-form");
+      const addBtn = document.getElementById("sch-add-toggle");
+      const submitBtn = form.querySelector('button[type="submit"]');
+      form.hidden = false;
+      addBtn.hidden = true;
+      submitBtn.textContent = schedule ? "Lưu thay đổi" : "Lưu";
+      initDrums();
+      if (schedule) {
+        const start = scheduleHHMMParts(schedule.startTime);
+        const end = scheduleHHMMParts(schedule.endTime);
+        drumSetValue(document.getElementById("drum-start-h"), start.h);
+        drumSetValue(document.getElementById("drum-start-m"), start.m);
+        drumSetValue(document.getElementById("drum-end-h"), end.h);
+        drumSetValue(document.getElementById("drum-end-m"), end.m);
+      }
+    }
+
+    function hideScheduleForm() {
+      editingSchedule = null;
+      const form = document.getElementById("sch-form");
+      form.hidden = true;
+      form.reset();
+      document.getElementById("sch-add-toggle").hidden = false;
+      form.querySelector('button[type="submit"]').textContent = "Lưu";
+    }
+
+    function buildIsoFromHHMM(hhmm) {
+      // Ngày tham chiếu không có ý nghĩa (chỉ giờ:phút được dùng để so khớp,
+      // dailyRepeat luôn true) — dùng ngày cố định cho nhất quán.
+      // KHÔNG thêm hậu tố "Z": có Z thì JS parse chuỗi này là UTC instant rồi
+      // tự quy đổi sang giờ local khi đọc lại bằng getHours() (server chạy
+      // giờ VN, UTC+7) — "06:00" gõ vào sẽ đọc lại thành "13:00", sai hoàn
+      // toàn. Bỏ Z để chuỗi được parse theo giờ local của máy chạy Node, khớp
+      // với getHours()/getMinutes() dùng trong scheduleTime.js.
+      return `2025-01-01T${hhmm}:00.000`;
+    }
+
+    function isNowInSchedule(sch) {
+      const toMin = (iso) => {
+        const d = new Date(iso);
+        return d.getHours() * 60 + d.getMinutes();
+      };
+      const s = toMin(sch.startTime);
+      const e = toMin(sch.endTime);
+      const now = new Date();
+      const n = now.getHours() * 60 + now.getMinutes();
+      return s <= e ? n >= s && n < e : n >= s || n < e;
+    }
+
+    function markScheduleDevicePending(schedule, desiredStatus) {
+      const d = devices.find((x) => x.id === schedule.deviceId);
+      if (!d) return;
+      const wasPending = !!d._pending;
+      d._pending = true;
+      renderTabs();
+      renderList();
+      if (!wasPending) {
+        showToast(`Lịch đang gửi lệnh ${desiredStatus ? "bật" : "tắt"} ${d.name}...`, "success");
+      }
+      setTimeout(() => {
+        if (!d._pending) return;
+        d._pending = false;
+        renderTabs();
+        renderList();
+        showToast(`Không nhận được phản hồi từ thiết bị "${d.name}" — giữ nguyên trạng thái`, "warning");
+      }, PENDING_FALLBACK_MS);
+    }
+
+    function renderScheduleList() {
+      const box = document.getElementById("sch-list");
+      const list = schedules.filter((s) => s.deviceId === currentScheduleDevice.id);
+      if (!list.length) {
+        box.innerHTML = '<p class="text-muted">Chưa có lịch hẹn giờ.</p>';
+        return;
+      }
+      box.innerHTML = "";
+      list.forEach((s) => {
+        const row = document.createElement("div");
+        row.className = "sch-row";
+
+        // Tạo DOM trực tiếp (không innerHTML) — fmtTimeHHMM() chỉ trả "HH:MM"
+        // nên không có rủi ro XSS thực sự, nhưng giữ nhất quán an toàn với
+        // escapeHtml() đã dùng xuyên suốt file cho mọi nội dung động.
+        const main = document.createElement("div");
+        main.className = "sch-row__main";
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "sch-row__time";
+        timeSpan.textContent = `${fmtTimeHHMM(s.startTime)} – ${fmtTimeHHMM(s.endTime)}`;
+        const subSpan = document.createElement("span");
+        subSpan.className = "sch-row__sub";
+        subSpan.textContent = "Hằng ngày";
+        main.append(timeSpan, subSpan);
+        row.appendChild(main);
+
+        const actions = document.createElement("div");
+        actions.className = "sch-row__actions";
+
+        const label = document.createElement("label");
+        label.className = "switch";
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.checked = !!s.status;
+        const slider = document.createElement("span");
+        slider.className = "switch__slider";
+        input.addEventListener("change", async () => {
+          input.disabled = true;
+          const nextStatus = input.checked;
+          const wasActiveNow = !!s.status && isNowInSchedule(s);
+          try {
+            await apiFetch(`/schedules/${s.id}`, {
+              method: "PATCH",
+              body: JSON.stringify({ status: nextStatus }),
+            });
+            s.status = nextStatus;
+            renderList();
+            renderScheduleOverview();
+            if (nextStatus && isNowInSchedule(s)) {
+              markScheduleDevicePending(s, true);
+            } else if (!nextStatus && wasActiveNow) {
+              markScheduleDevicePending(s, false);
+            }
+          } catch (e) {
+            input.checked = !input.checked;
+            const msg = String(e.message || "").includes("409")
+              ? "Khung giờ trùng với lịch khác đang bật"
+              : "Không cập nhật được lịch";
+            showToast(msg, "error");
+          } finally {
+            input.disabled = false;
+          }
+        });
+        label.append(input, slider);
+
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "btn-icon";
+        editBtn.title = "Chỉnh sửa";
+        editBtn.innerHTML = icon("edit", { size: "16px" });
+        editBtn.addEventListener("click", () => showScheduleForm(s));
+
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.className = "btn-icon btn-icon--danger";
+        delBtn.title = "Xóa";
+        delBtn.innerHTML = icon("trash", { size: "16px" });
+        delBtn.addEventListener("click", async () => {
+          const ok = await confirmDialog(
+            `Xóa lịch ${fmtTimeHHMM(s.startTime)} – ${fmtTimeHHMM(s.endTime)}?`,
+            { title: "Xóa lịch hẹn giờ", okText: "Xóa", danger: true }
+          );
+          if (!ok) return;
+          try {
+            await apiFetch(`/schedules/${s.id}`, { method: "DELETE" });
+            schedules = schedules.filter((x) => x.id !== s.id);
+            if (editingSchedule?.id === s.id) hideScheduleForm();
+            renderScheduleList();
+            renderList();
+            renderScheduleOverview();
+          } catch {
+            showToast("Không xóa được lịch", "error");
+          }
+        });
+
+        actions.append(label, editBtn, delBtn);
+        row.appendChild(actions);
+        box.appendChild(row);
+      });
+    }
+
+    function openScheduleModal(device) {
+      currentScheduleDevice = device;
+      document.getElementById("sch-modal-title").textContent = `Lịch hẹn giờ — ${device.name}`;
+      document.getElementById("sch-modal-desc").textContent =
+        "Mỗi lịch hoạt động như 1 báo thức: bật switch để áp dụng, tắt để tạm dừng.";
+      hideScheduleForm();
+      renderScheduleList();
+      const modal = document.getElementById("schedule-modal");
+      modal.setAttribute("aria-hidden", "false");
+      modal.classList.add("is-open");
+    }
+
+    function closeScheduleModal() {
+      const modal = document.getElementById("schedule-modal");
+      modal.setAttribute("aria-hidden", "true");
+      modal.classList.remove("is-open");
+      hideScheduleForm();
+      currentScheduleDevice = null;
+    }
+
+    document.getElementById("sch-close").addEventListener("click", closeScheduleModal);
+    document.getElementById("sch-add-toggle").addEventListener("click", () => {
+      showScheduleForm();
+    });
+    document.getElementById("sch-cancel").addEventListener("click", () => {
+      hideScheduleForm();
+    });
+
+    document.getElementById("sch-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const startHHMM = drumReadHHMM("drum-start-h", "drum-start-m");
+      const endHHMM   = drumReadHHMM("drum-end-h",   "drum-end-m");
+
+      const device = currentScheduleDevice;
+      try {
+        const wasEditing = !!editingSchedule;
+        const payload = {
+          startTime: buildIsoFromHHMM(startHHMM),
+          endTime: buildIsoFromHHMM(endHHMM),
+        };
+        if (editingSchedule) {
+          const updated = await apiFetch(`/schedules/${editingSchedule.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          });
+          schedules = schedules.map((s) => (s.id === updated.id ? updated : s));
+        } else {
+          const created = await apiFetch("/schedules", {
+            method: "POST",
+            body: JSON.stringify({
+              deviceId: device.id,
+              nodeId: device.nodeId,
+              gatewayId: device.gatewayId,
+              deviceName: device.name,
+              devicePin: device.pin,
+              ...payload,
+              dailyRepeat: true,
+            }),
+          });
+          schedules.push(created);
+        }
+        hideScheduleForm();
+        renderScheduleList();
+        renderList();
+        renderScheduleOverview();
+        showToast(wasEditing ? "Đã cập nhật lịch hẹn giờ" : "Đã lưu lịch hẹn giờ", "success");
+      } catch (e) {
+        const msg = String(e.message || "").includes("409")
+          ? "Khung giờ trùng với lịch khác đang bật"
+          : "Không lưu được lịch hẹn giờ";
+        showToast(msg, "error");
+      }
+    });
+
+    window.addEventListener("focus", load);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) load();
+    });
+
+    connectEvents();
+    load();
+  </script>
+</body>
+</html>
