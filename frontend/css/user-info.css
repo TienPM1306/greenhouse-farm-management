@@ -1,0 +1,162 @@
+/* user-info.css — trang thông tin cá nhân: thẻ xem tĩnh + modal chỉnh sửa. */
+
+.ui-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-16);
+}
+@media (max-width: 540px) { .ui-form { grid-template-columns: 1fr; } }
+.ui-form .field--full { grid-column: 1 / -1; }
+/* 2 nút (Lưu thay đổi + Thay đổi mật khẩu) đẩy sang trái, có khoảng cách giữa */
+.ui-actions { grid-column: 1 / -1; display: flex; justify-content: flex-start; gap: var(--spacing-16); }
+
+/* Khối đổi mật khẩu — hiện bên dưới 2 nút khi bấm "Thay đổi mật khẩu".
+   Đường kẻ ngăn cách dùng border-top của chính form → chạy full chiều ngang box. */
+.ui-pwd {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-16);
+  margin-top: var(--spacing-24);
+  padding-top: var(--spacing-24);
+  border-top: 1px solid var(--border-color);
+}
+@media (max-width: 540px) { .ui-pwd { grid-template-columns: 1fr; } }
+.ui-pwd .field--full { grid-column: 1 / -1; }
+/* Nút "Xác nhận" ở cuối box, căn trái cho đồng bộ với 2 nút trên */
+.ui-pwd__actions { grid-column: 1 / -1; display: flex; justify-content: flex-start; }
+
+/* ===================== THẺ XEM (tĩnh) ===================== */
+/* Một thẻ chia 2 vùng: trái = avatar + tên (có đường kẻ dọc phân cách); phải = thông tin. */
+.ui-view {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: var(--spacing-32);
+  max-width: 680px;
+}
+@media (max-width: 540px) {
+  .ui-view { flex-direction: column; align-items: center; gap: var(--spacing-20); }
+}
+
+/* Vùng trái: avatar lớn + tên + username, có đường kẻ dọc ngăn cách vùng phải */
+.ui-view__side {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding-right: var(--spacing-32);
+  border-right: 1px solid var(--border-color);
+}
+@media (max-width: 540px) {
+  .ui-view__side {
+    padding-right: 0; padding-bottom: var(--spacing-20);
+    border-right: none; border-bottom: 1px solid var(--border-color);
+    width: 100%;
+  }
+}
+
+/* Avatar = nút bấm; hover hiện lớp phủ "Đổi ảnh" (kiểu Facebook) */
+.ui-view__avatar {
+  position: relative;
+  width: 128px; height: 128px;
+  margin-bottom: var(--spacing-8);
+  padding: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-lime-canopy);
+  color: var(--color-ink-black);
+  font-size: 48px;
+  font-weight: var(--fw-bold);
+  border: 3px solid var(--color-paper-white);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  display: block;
+}
+[data-theme="dark"] .ui-view__avatar { border-color: var(--bg-card); }
+
+/* Lớp giữa: ảnh hoặc chữ cái viết tắt — căn giữa */
+.ui-view__avatar-media {
+  position: absolute;
+  inset: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.ui-view__avatar-media img { width: 100%; height: 100%; object-fit: cover; }
+
+/* Lớp phủ tối + icon máy ảnh + chữ, hiện khi hover/focus */
+.ui-view__avatar-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 2px;
+  background: rgba(8, 52, 0, 0.55);
+  color: #fff;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+.ui-view__avatar:hover .ui-view__avatar-overlay,
+.ui-view__avatar:focus-visible .ui-view__avatar-overlay { opacity: 1; }
+.ui-view__avatar-cam { display: inline-flex; }
+.ui-view__avatar-text {
+  font-size: var(--text-caption);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+}
+
+.ui-view__name { font-size: var(--text-heading-sm); font-weight: var(--fw-bold); margin: 0; line-height: 1.2; }
+.ui-view__username { color: var(--text-muted); font-size: var(--text-body-sm); }
+
+/* Vùng phải: danh sách thông tin, căn giữa theo chiều dọc */
+.ui-view__info { flex: 1; min-width: 0; display: flex; align-items: center; }
+.ui-view__list { width: 100%; margin: 0; display: grid; gap: var(--spacing-12); }
+.ui-view__row { display: grid; grid-template-columns: 130px 1fr; align-items: baseline; gap: var(--spacing-12); }
+@media (max-width: 540px) { .ui-view__row { grid-template-columns: 1fr; gap: 0; text-align: center; } }
+.ui-view__row dt { color: var(--text-muted); font-size: var(--text-body-sm); }
+.ui-view__row dd { margin: 0; font-weight: var(--fw-medium); font-size: var(--text-body-sm); word-break: break-word; }
+
+/* ===================== MODAL CHỈNH SỬA ===================== */
+/* Box chỉ còn form (avatar đổi trực tiếp ở thẻ tĩnh); cuộn khi vượt chiều cao. */
+.ui-modal-box {
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+/* Bỏ nền card lồng trong modal cho gọn. */
+.ui-modal-box #edit-grid > .card {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Icon "thay đổi" góc trên phải thẻ */
+.ui-view__edit {
+  position: absolute;
+  top: var(--spacing-16); right: var(--spacing-16);
+  width: 38px; height: 38px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-pill);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+.ui-view__edit:hover {
+  color: var(--color-ink-black);
+  background: var(--color-lime-canopy);
+  border-color: var(--color-ink-black);
+}
+[data-theme="dark"] .ui-view__edit:hover { color: #f5f7ec; background: #34801f; border-color: #1f5212; }
+
+/* ===================== Trường bắt buộc ===================== */
+/* Sao đỏ đánh dấu trường không được bỏ trống */
+.req { color: var(--color-error); font-weight: var(--fw-bold); margin-left: 2px; }
+/* Ô bỏ trống khi submit → viền đỏ cảnh báo */
+.field input.is-invalid {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 2px rgba(220, 53, 69, 0.15);
+}

@@ -1,0 +1,92 @@
+/* node-details.css — chi tiết 1 node (nhà kính): cảm biến + relay + lịch + điều kiện. */
+
+.nd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--text-body-sm);
+  margin-bottom: var(--spacing-8);
+}
+.nd-back:hover { color: var(--text-default); }
+
+/* Thẻ giá trị cảm biến hiện tại */
+.sensor-tile {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-16);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: var(--card-padding);
+}
+.sensor-tile__icon {
+  width: 46px; height: 46px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.sensor-tile__label { color: var(--text-muted); font-size: var(--text-caption); }
+.sensor-tile__value { font-size: var(--text-heading-sm); font-weight: var(--fw-bold); }
+.sensor-tile__unit { font-size: var(--text-body-sm); color: var(--text-muted); font-weight: var(--fw-regular); }
+
+/* Box biểu đồ cảm biến */
+.chart-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: var(--card-padding);
+}
+.chart-box__title {
+  font-size: var(--text-body-sm);
+  font-weight: var(--fw-bold);
+  color: var(--text-muted);
+  margin-bottom: var(--spacing-12);
+}
+.chart-box__canvas {
+  position: relative;
+  height: 180px;
+}
+
+/* Box thiết bị (relay) — đồng bộ với box cảm biến */
+.device-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--spacing-16);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card);
+  padding: var(--card-padding);
+}
+.device-tile__head { display: flex; align-items: center; gap: var(--spacing-12); }
+.device-tile__icon {
+  width: 46px; height: 46px;
+  border-radius: 12px;
+  background: var(--bg-band);
+  color: var(--color-lime-canopy-strong);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.device-tile__name { font-weight: var(--fw-bold); }
+.device-tile__foot { display: flex; align-items: center; justify-content: space-between; }
+.device-tile__state { color: var(--text-muted); font-size: var(--text-body-sm); }
+
+/* Hàng thiết bị (relay) */
+.device-row,
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-16);
+  padding: var(--spacing-16) 0;
+  border-bottom: 1px solid var(--border-color);
+}
+.device-row:last-child,
+.list-row:last-child { border-bottom: none; }
+.device-row__name { font-weight: var(--fw-bold); }
+.device-row__desc { color: var(--text-muted); font-size: var(--text-body-sm); }
+.list-row__main { display: flex; flex-direction: column; gap: 2px; }
+.list-row__sub { color: var(--text-muted); font-size: var(--text-body-sm); }
