@@ -61,6 +61,7 @@ flowchart LR
 | Analog light sensor | Light level |
 | Relay board | Switches the fan, pump and light |
 
+<img width="1920" height="2560" alt="image" src="https://github.com/user-attachments/assets/2418dfbb-f7cb-46ea-96ab-6e839ce61c04" />
 
 
 ## Reliability on the LoRa link
@@ -144,7 +145,7 @@ Requirements: [PlatformIO](https://platformio.org/) (VS Code extension or CLI).
 ## My role
 
 I worked on the backend, the MQTT data flow, the web dashboard and the hardware assembly.
-My teammate, Trần Trung Hiếu, [add his part: hardware design / firmware].
+My teammate, Trần Trung Hiếu, built the hardware.
 
 ## Authors
 
