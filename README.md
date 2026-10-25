@@ -65,7 +65,7 @@ flowchart LR
 
 *Figure 1: Greenhouse Farm Management System — ESP32/STM32 LoRa Node PCB designed in EasyEDA.*
 
-<img width="800" alt="image" src="https://github.com/user-attachments/assets/96143ca7-ff68-4649-8c24-3f21b130780c" />
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/0e717515-8630-4f28-94b5-b38c1f002610" />
 
 *Figure 1: Greenhouse Farm Management System — ESP32/STM32 LoRa Gateway PCB designed in EasyEDA.*
 
