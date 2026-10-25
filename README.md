@@ -61,7 +61,7 @@ flowchart LR
 | Analog light sensor | Light level |
 | Relay board | Switches the fan, pump and light |
 
-<img width="1920" height="2560" alt="image" src="https://github.com/user-attachments/assets/2418dfbb-f7cb-46ea-96ab-6e839ce61c04" />
+<img width="800" height="800" alt="image" src="https://github.com/user-attachments/assets/8c5e4e98-3a50-425b-912b-b11c878a61bc" />
 
 
 ## Reliability on the LoRa link
