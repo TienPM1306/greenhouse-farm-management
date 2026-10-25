@@ -62,6 +62,7 @@ flowchart LR
 | Relay board | Switches the fan, pump and light |
 
 <img width="800" alt="image" src="https://github.com/user-attachments/assets/8c5e4e98-3a50-425b-912b-b11c878a61bc" />
+*Figure 1: Greenhouse Farm Management System — ESP32/STM32 LoRa node PCB designed in EasyEDA.*
 
 
 ## Reliability on the LoRa link
